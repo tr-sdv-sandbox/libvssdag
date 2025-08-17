@@ -5,11 +5,11 @@
 
 # Default values
 VCAN_INTERFACE="${1:-vcan0}"
-DBC_FILE="${2:-examples/tesla_simulation/Model3CAN.dbc}"
-MAPPING_FILE="${3:-examples/tesla_simulation/model3_mappings_dag.yaml}"
+DBC_FILE="${2:-Model3CAN.dbc}"
+MAPPING_FILE="${3:-model3_mappings_dag.yaml}"
 
 # Binary location (adjust if needed)
-CAN_TO_VSS_BIN="./build/can-to-vss-dag"
+CAN_TO_VSS_BIN="../../build/can-to-vss-dag"
 
 # Output log file
 LOG_FILE="can_to_vss_dag_$(date +%Y%m%d_%H%M%S).log"

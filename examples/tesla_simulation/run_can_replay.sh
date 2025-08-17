@@ -5,7 +5,7 @@
 
 # Default values
 VCAN_INTERFACE="${1:-vcan0}"
-CAN_LOG="${2:-examples/tesla_simulation/candump.log}"
+CAN_LOG="${2:-candump.log}"
 REPLAY_SPEED="${3:-1}"  # 1=realtime, 2=2x speed, 0.5=half speed, etc.
 
 # Colors for output
