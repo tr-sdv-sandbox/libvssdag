@@ -1,0 +1,83 @@
+# VSS 4.0 Struct Type Definitions for Battery Management
+# Compliant with VSS 4.0 struct specification
+# These would typically be in a separate types file or in the VSS standard
+
+# Define the struct types in Vehicle.Types namespace
+Vehicle.Types.SimpleBatteryCells:
+  type: struct
+  description: Simple battery cell array with statistics
+
+Vehicle.Types.SimpleBatteryCells.voltages:
+  datatype: float[]
+  type: property
+  description: Array of cell voltages
+  unit: V
+
+Vehicle.Types.SimpleBatteryCells.minVoltage:
+  datatype: float
+  type: property  
+  description: Minimum cell voltage
+  unit: V
+
+Vehicle.Types.SimpleBatteryCells.maxVoltage:
+  datatype: float
+  type: property
+  description: Maximum cell voltage
+  unit: V
+
+Vehicle.Types.SimpleBatteryCells.deltaVoltage:
+  datatype: float
+  type: property
+  description: Difference between max and min cell voltage
+  unit: V
+
+Vehicle.Types.SimpleBatteryCells.averageVoltage:
+  datatype: float
+  type: property
+  description: Average of all cell voltages
+  unit: V
+
+Vehicle.Types.SimpleBatteryCells.validCellCount:
+  datatype: uint16
+  type: property
+  description: Number of cells with valid (non-nil) values
+
+Vehicle.Types.SimpleBatteryCells.totalCellCount:
+  datatype: uint16
+  type: property
+  description: Total number of cells detected in the array
+
+# Usage in actual VSS tree would be:
+Vehicle.Powertrain.TractionBattery.CellsLKV:
+  datatype: Vehicle.Types.SimpleBatteryCells
+  type: sensor
+  description: Battery cells with last known value strategy
+
+# Alternative inline struct definition (VSS 4.0 also supports this):
+Vehicle.Powertrain.TractionBattery.CellsWindowed:
+  type: sensor
+  description: Battery cells with windowed freshness tracking
+  datatype:
+    type: struct
+    properties:
+      cells:
+        datatype: float[]
+        description: Array of cell voltages with freshness
+      freshCount:
+        datatype: uint16
+        description: Number of cells with fresh data
+      totalCount:
+        datatype: uint16
+        description: Total number of cells
+      coveragePercent:
+        datatype: float
+        unit: percent
+        description: Percentage of cells with fresh data
+      windowSeconds:
+        datatype: float
+        unit: s
+        description: Time window for freshness
+      timestamp:
+        datatype: float
+        unit: s
+        description: Timestamp of this struct emission

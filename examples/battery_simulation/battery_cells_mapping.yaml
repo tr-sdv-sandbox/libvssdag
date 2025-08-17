@@ -1,0 +1,444 @@
+# Battery Cell Aggregation Example
+# Demonstrates handling of slowly arriving cell voltage data
+
+mappings:
+  # Individual cell voltages from DBC (already scaled to V by DBC)
+  - signal: cell1_voltage
+    dbc_name: Cell1_Voltage
+    provides: cell1_voltage
+    transform:
+      code: "x"  # Already in V from DBC
+      
+  - signal: cell2_voltage
+    dbc_name: Cell2_Voltage
+    provides: cell2_voltage
+    transform:
+      code: "x"
+      
+  - signal: cell3_voltage
+    dbc_name: Cell3_Voltage
+    provides: cell3_voltage
+    transform:
+      code: "x"
+      
+  - signal: cell4_voltage
+    dbc_name: Cell4_Voltage
+    provides: cell4_voltage
+    transform:
+      code: "x"
+      
+  - signal: cell5_voltage
+    dbc_name: Cell5_Voltage
+    provides: cell5_voltage
+    transform:
+      code: "x"
+      
+  - signal: cell6_voltage
+    dbc_name: Cell6_Voltage
+    provides: cell6_voltage
+    transform:
+      code: "x"
+      
+  - signal: cell7_voltage
+    dbc_name: Cell7_Voltage
+    provides: cell7_voltage
+    transform:
+      code: "x"
+      
+  - signal: cell8_voltage
+    dbc_name: Cell8_Voltage
+    provides: cell8_voltage
+    transform:
+      code: "x"
+      
+  - signal: cell9_voltage
+    dbc_name: Cell9_Voltage
+    provides: cell9_voltage
+    transform:
+      code: "x"
+      
+  - signal: cell10_voltage
+    dbc_name: Cell10_Voltage
+    provides: cell10_voltage
+    transform:
+      code: "x"
+      
+  - signal: cell11_voltage
+    dbc_name: Cell11_Voltage
+    provides: cell11_voltage
+    transform:
+      code: "x"
+      
+  - signal: cell12_voltage
+    dbc_name: Cell12_Voltage
+    provides: cell12_voltage
+    transform:
+      code: "x"
+      
+  # Min/Max cell voltages from statistics message
+  - signal: min_cell_voltage
+    dbc_name: MinCellVoltage
+    vss_path: Vehicle.Powertrain.TractionBattery.Cell.MinVoltage
+    datatype: float
+    interval_ms: 1000
+    provides: min_cell_voltage
+    transform:
+      code: "x"  # Already in V from DBC
+      
+  - signal: max_cell_voltage
+    dbc_name: MaxCellVoltage
+    vss_path: Vehicle.Powertrain.TractionBattery.Cell.MaxVoltage
+    datatype: float
+    interval_ms: 1000
+    provides: max_cell_voltage
+    transform:
+      code: "x"  # Already in V from DBC
+
+  # ===== STRATEGY 1: Last Known Value Aggregation =====
+  # Maintains all cell values, updates as new data arrives
+  - signal: battery_cells_lkv
+    vss_path: Vehicle.Powertrain.TractionBattery.CellsLKV
+    datatype: struct
+    struct_type: Types.SimpleBatteryCells
+    interval_ms: 2000  # Emit every 2 seconds
+    update_trigger: both  # On change or periodically
+    depends_on: [cell1_voltage, cell2_voltage, cell3_voltage, cell4_voltage, 
+                 cell5_voltage, cell6_voltage, cell7_voltage, cell8_voltage,
+                 cell9_voltage, cell10_voltage, cell11_voltage, cell12_voltage,
+                 min_cell_voltage, max_cell_voltage]
+    transform:
+      code: |
+        local state = get_state()
+        
+        -- Initialize cell storage - dynamically sized
+        state.cells = state.cells or {}
+        state.cell_count = state.cell_count or 0
+        
+        -- Collect all cell voltages dynamically
+        local cell_deps = {
+          deps.cell1_voltage, deps.cell2_voltage, deps.cell3_voltage, deps.cell4_voltage,
+          deps.cell5_voltage, deps.cell6_voltage, deps.cell7_voltage, deps.cell8_voltage,
+          deps.cell9_voltage, deps.cell10_voltage, deps.cell11_voltage, deps.cell12_voltage
+        }
+        
+        -- Update cells as new values arrive, track highest cell index
+        for i, voltage in ipairs(cell_deps) do
+          if voltage ~= nil then
+            state.cells[i] = voltage
+            state.cell_count = math.max(state.cell_count, i)
+          end
+        end
+        
+        -- Calculate statistics with nil handling
+        local min_v = nil
+        local max_v = nil
+        local sum_v = 0
+        local valid_count = 0
+        
+        for i = 1, state.cell_count do
+          if state.cells[i] ~= nil then
+            -- Initialize min/max with first valid value
+            if min_v == nil then
+              min_v = state.cells[i]
+              max_v = state.cells[i]
+            else
+              min_v = math.min(min_v, state.cells[i])
+              max_v = math.max(max_v, state.cells[i])
+            end
+            sum_v = sum_v + state.cells[i]
+            valid_count = valid_count + 1
+          end
+        end
+        
+        -- Calculate average only from valid cells
+        local avg_v = nil
+        if valid_count > 0 then
+          avg_v = sum_v / valid_count
+        end
+        
+        -- Use default values if no data yet
+        min_v = min_v or 3.7
+        max_v = max_v or 3.7
+        avg_v = avg_v or 3.7
+        
+        return {
+          voltages = state.cells,
+          min_voltage = deps.min_cell_voltage or min_v,
+          max_voltage = deps.max_cell_voltage or max_v,
+          delta_voltage = (deps.max_cell_voltage or max_v) - (deps.min_cell_voltage or min_v),
+          average_voltage = avg_v,
+          valid_cell_count = valid_count,
+          total_cell_count = state.cell_count
+        }
+
+  # ===== STRATEGY 2: Windowed Updates with Freshness =====
+  # Only includes cells updated within time window
+  - signal: battery_cells_windowed
+    vss_path: Vehicle.Powertrain.TractionBattery.CellsWindowed
+    datatype: struct
+    struct_type: Types.WindowedBatteryCells
+    interval_ms: 5000  # Emit every 5 seconds
+    update_trigger: periodic
+    depends_on: [cell1_voltage, cell2_voltage, cell3_voltage, cell4_voltage, 
+                 cell5_voltage, cell6_voltage, cell7_voltage, cell8_voltage,
+                 cell9_voltage, cell10_voltage, cell11_voltage, cell12_voltage]
+    transform:
+      code: |
+        local state = get_state()
+        local now = _current_time
+        local window = 10  -- 10 second window
+        
+        -- Initialize storage
+        state.cells = state.cells or {}
+        state.timestamps = state.timestamps or {}
+        state.cell_count = state.cell_count or 0
+        
+        -- Collect all cell voltages with timestamps
+        local cell_deps = {
+          deps.cell1_voltage, deps.cell2_voltage, deps.cell3_voltage, deps.cell4_voltage,
+          deps.cell5_voltage, deps.cell6_voltage, deps.cell7_voltage, deps.cell8_voltage,
+          deps.cell9_voltage, deps.cell10_voltage, deps.cell11_voltage, deps.cell12_voltage
+        }
+        
+        -- Update cells with timestamps when new values arrive
+        for i, voltage in ipairs(cell_deps) do
+          if voltage ~= nil then
+            state.cells[i] = voltage
+            state.timestamps[i] = now
+            state.cell_count = math.max(state.cell_count, i)
+          end
+        end
+        
+        -- Build output with only fresh cells, calculate statistics
+        local fresh_cells = {}
+        local fresh_count = 0
+        local sum_v = 0
+        local min_v = nil
+        local max_v = nil
+        
+        for i = 1, state.cell_count do
+          if state.timestamps[i] and (now - state.timestamps[i]) <= window then
+            fresh_cells[i] = {
+              voltage = state.cells[i],
+              age = now - state.timestamps[i]
+            }
+            fresh_count = fresh_count + 1
+            
+            -- Statistics for fresh cells only
+            if min_v == nil then
+              min_v = state.cells[i]
+              max_v = state.cells[i]
+            else
+              min_v = math.min(min_v, state.cells[i])
+              max_v = math.max(max_v, state.cells[i])
+            end
+            sum_v = sum_v + state.cells[i]
+          else
+            fresh_cells[i] = nil  -- Explicitly null for stale/missing
+          end
+        end
+        
+        -- Calculate average from fresh cells only
+        local avg_v = nil
+        if fresh_count > 0 then
+          avg_v = sum_v / fresh_count
+        end
+        
+        return {
+          cells = fresh_cells,
+          fresh_count = fresh_count,
+          total_count = state.cell_count,
+          coverage_percent = state.cell_count > 0 and (fresh_count / state.cell_count * 100) or 0,
+          average_voltage = avg_v,
+          min_voltage = min_v,
+          max_voltage = max_v,
+          window_seconds = window,
+          timestamp = now
+        }
+
+  # ===== Cell Discovery Tracker =====
+  # Monitors which cells are available and tracks scanning patterns
+  - signal: cell_discovery_tracker
+    vss_path: Vehicle.Powertrain.TractionBattery.CellDiscovery  # Add VSS path to see output
+    provides: cell_discovery_info
+    datatype: double  # Use double for now to see if it outputs
+    interval_ms: 5000  # Report every 5 seconds
+    update_trigger: both
+    depends_on: [cell1_voltage, cell2_voltage, cell3_voltage, cell4_voltage, 
+                 cell5_voltage, cell6_voltage, cell7_voltage, cell8_voltage,
+                 cell9_voltage, cell10_voltage, cell11_voltage, cell12_voltage]
+    transform:
+      code: |
+        local state = get_state()
+        local now = _current_time
+        local window = 60  -- Track cells seen in last 60 seconds
+        
+        -- Initialize with assumption that all 12 cells are present
+        if not state.initialized then
+          state.cell_seen_times = {}
+          state.assumed_cell_count = 12  -- Assume 12 cells until proven otherwise
+          state.initialized = true
+        end
+        state.last_report = state.last_report or 0
+        
+        -- Collect all cell voltages
+        local cell_deps = {
+          deps.cell1_voltage, deps.cell2_voltage, deps.cell3_voltage, deps.cell4_voltage,
+          deps.cell5_voltage, deps.cell6_voltage, deps.cell7_voltage, deps.cell8_voltage,
+          deps.cell9_voltage, deps.cell10_voltage, deps.cell11_voltage, deps.cell12_voltage
+        }
+        
+        -- Update seen times for cells that have values
+        for i, voltage in ipairs(cell_deps) do
+          if voltage ~= nil then
+            state.cell_seen_times[i] = now
+          end
+        end
+        
+        -- Analyze what cells we've seen in the window
+        local min_cell_seen = nil
+        local max_cell_seen = nil
+        local cells_in_window = 0
+        local cells_fresh = 0  -- Seen in last 15 seconds
+        local scan_pattern = {}
+        
+        for i = 1, 12 do
+          if state.cell_seen_times[i] then
+            local age = now - state.cell_seen_times[i]
+            if age <= window then
+              cells_in_window = cells_in_window + 1
+              min_cell_seen = min_cell_seen and math.min(min_cell_seen, i) or i
+              max_cell_seen = max_cell_seen and math.max(max_cell_seen, i) or i
+              
+              if age <= 15 then
+                cells_fresh = cells_fresh + 1
+                scan_pattern[i] = "fresh"
+              else
+                scan_pattern[i] = "stale"
+              end
+            else
+              scan_pattern[i] = "missing"
+            end
+          else
+            scan_pattern[i] = "never"
+          end
+        end
+        
+        -- Detect if we have a complete fresh cycle
+        -- Consider it complete if we have at least 10 fresh cells (allowing for some failures)
+        local complete_cycle = false
+        if cells_fresh >= 10 then
+          complete_cycle = true
+        elseif min_cell_seen and max_cell_seen and cells_fresh > 0 then
+          -- Or if all discovered cells are fresh
+          local all_discovered_fresh = true
+          for i = min_cell_seen, max_cell_seen do
+            if state.cell_seen_times[i] and scan_pattern[i] ~= "fresh" then
+              all_discovered_fresh = false
+              break
+            end
+          end
+          complete_cycle = all_discovered_fresh
+        end
+        
+        -- Adjust assumed cell count based on what we've actually seen
+        if max_cell_seen and max_cell_seen > 0 then
+          state.assumed_cell_count = max_cell_seen
+        end
+        
+        -- For debugging, also set a simple value we can see
+        state.discovery_info = {
+          min_cell_index = min_cell_seen or 1,
+          max_cell_index = max_cell_seen or state.assumed_cell_count,
+          total_cells_seen = cells_in_window > 0 and cells_in_window or state.assumed_cell_count,
+          fresh_cells = cells_fresh,
+          window_seconds = window,
+          complete_fresh_cycle = complete_cycle,
+          scan_pattern = scan_pattern,
+          timestamp = now,
+          initialized = true  -- Always initialized (optimistic approach)
+        }
+        
+        -- Return fresh cell count as simple double for VSS output
+        return cells_fresh
+
+  # ===== STRATEGY 3: Complete Cycle Detection =====
+  # Only emits when all cells have been updated
+  - signal: battery_cells_complete
+    vss_path: Vehicle.Powertrain.TractionBattery.CellsComplete
+    datatype: struct
+    struct_type: Types.CompleteBatteryCells
+    interval_ms: 0  # No periodic emission
+    update_trigger: change  # Only on data change
+    depends_on: [cell1_voltage, cell2_voltage, cell3_voltage, cell4_voltage, 
+                 cell5_voltage, cell6_voltage, cell7_voltage, cell8_voltage,
+                 cell9_voltage, cell10_voltage, cell11_voltage, cell12_voltage,
+                 cell_discovery_info]
+    transform:
+      code: |
+        local state = get_state()
+        local now = _current_time
+        
+        state.last_emit = state.last_emit or 0
+        state.last_complete_state = state.last_complete_state or false
+        
+        -- Get discovery info from the discovery tracker's state
+        -- Since discovery tracker returns a number, we need to check its state
+        local fresh_cell_count = deps.cell_discovery_info or 0
+        
+        -- Consider complete if we have at least 10 fresh cells
+        local is_complete = fresh_cell_count >= 10
+        
+        -- Emit periodically when we have complete data
+        if is_complete and (now - state.last_emit) > 10 then
+          -- Collect all cell voltages
+          local cell_deps = {
+            deps.cell1_voltage, deps.cell2_voltage, deps.cell3_voltage, deps.cell4_voltage,
+            deps.cell5_voltage, deps.cell6_voltage, deps.cell7_voltage, deps.cell8_voltage,
+            deps.cell9_voltage, deps.cell10_voltage, deps.cell11_voltage, deps.cell12_voltage
+          }
+          
+          -- Build voltage array for discovered cells
+          local voltages = {}
+          local sum_v = 0
+          local min_v = nil
+          local max_v = nil
+          local valid_count = 0
+          
+          -- Check all 12 cells
+          for i = 1, 12 do
+            if cell_deps[i] then
+              voltages[i] = cell_deps[i]
+              if min_v == nil then
+                min_v = cell_deps[i]
+                max_v = cell_deps[i]
+              else
+                min_v = math.min(min_v, cell_deps[i])
+                max_v = math.max(max_v, cell_deps[i])
+              end
+              sum_v = sum_v + cell_deps[i]
+              valid_count = valid_count + 1
+            end
+          end
+          
+          if valid_count > 0 then
+            state.last_emit = now
+            local result = {
+              voltages = voltages,
+              min_voltage = min_v,
+              max_voltage = max_v,
+              average_voltage = sum_v / valid_count,
+              cycle_time = 0,  -- Could track if needed
+              cell_count = valid_count,
+              timestamp = now,
+              complete = true
+            }
+            
+            return result
+          end
+        end
+        
+        -- Update state for next check
+        state.last_complete_state = is_complete
+        
+        return nil  -- Don't emit incomplete data
