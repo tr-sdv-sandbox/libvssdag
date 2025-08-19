@@ -6,7 +6,7 @@
 #include <chrono>
 #include "signal_dag.h"
 #include "lua_mapper.h"
-#include "can/dbc_parser.h"
+#include "signal_source.h"
 
 namespace can_to_vss {
 
@@ -15,21 +15,23 @@ public:
     SignalProcessorDAG();
     ~SignalProcessorDAG();
     
-    // Initialize with mappings and optional DBC parser for enum support
-    bool initialize(const std::unordered_map<std::string, SignalMapping>& mappings,
-                   const DBCParser* dbc_parser = nullptr);
+    // Initialize with mappings
+    bool initialize(const std::unordered_map<std::string, SignalMapping>& mappings);
     
     // Process CAN signals and return VSS signals
     std::vector<VSSSignal> process_can_signals(
         const std::vector<std::pair<std::string, double>>& can_signals);
     
-    // Get list of CAN signals we're interested in
-    std::vector<std::string> get_required_can_signals() const;
+    // Process signal updates from signal sources
+    std::vector<VSSSignal> process_signal_updates(
+        const std::vector<vssdag::SignalUpdate>& updates);
+    
+    // Get list of input signals we're interested in
+    std::vector<std::string> get_required_input_signals() const;
 
 private:
     std::unique_ptr<SignalDAG> dag_;
     std::unique_ptr<LuaMapper> lua_mapper_;
-    const DBCParser* dbc_parser_;
     
     // Current values for all provided signals
     std::unordered_map<std::string, double> signal_values_;

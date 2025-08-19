@@ -7,7 +7,6 @@ namespace can_to_vss {
 bool SignalDAG::build(const std::unordered_map<std::string, SignalMapping>& mappings) {
     nodes_.clear();
     signal_map_.clear();
-    provider_map_.clear();
     processing_order_.clear();
     
     // First pass: Create nodes
@@ -17,37 +16,25 @@ bool SignalDAG::build(const std::unordered_map<std::string, SignalMapping>& mapp
         node->mapping = mapping;
         node->depends_on = mapping.depends_on;
         
-        // Determine if this is a CAN signal or derived
-        node->is_can_signal = mapping.depends_on.empty();
-        
-        // Set provides name (default to signal name if not specified)
-        node->provides = mapping.provides.empty() ? signal_name : mapping.provides;
-        
-        // Check for duplicate providers
-        if (provider_map_.count(node->provides)) {
-            LOG(ERROR) << "Multiple signals provide '" << node->provides 
-                      << "': " << provider_map_[node->provides]->signal_name 
-                      << " and " << node->signal_name;
-            return false;
-        }
+        // Determine if this is an input signal (has a source) or derived
+        node->is_input_signal = mapping.source.is_input_signal();
         
         signal_map_[node->signal_name] = node.get();
-        provider_map_[node->provides] = node.get();
         nodes_.push_back(std::move(node));
     }
     
     // Second pass: Build dependency edges
     for (auto& node : nodes_) {
         for (const auto& dep : node->depends_on) {
-            auto it = provider_map_.find(dep);
-            if (it == provider_map_.end()) {
+            auto it = signal_map_.find(dep);
+            if (it == signal_map_.end()) {
                 LOG(ERROR) << "Signal '" << node->signal_name 
                           << "' depends on '" << dep 
-                          << "' which no signal provides";
+                          << "' which doesn't exist";
                 return false;
             }
             
-            // Add edge from provider to dependent
+            // Add edge from dependency to dependent
             it->second->dependents.push_back(node.get());
             node->in_degree++;
         }
@@ -71,7 +58,7 @@ bool SignalDAG::build(const std::unordered_map<std::string, SignalMapping>& mapp
             }
             deps_str += "]";
         }
-        LOG(INFO) << "  " << node->signal_name << " -> " << node->provides << deps_str;
+        LOG(INFO) << "  " << node->signal_name << deps_str;
     }
     
     return true;

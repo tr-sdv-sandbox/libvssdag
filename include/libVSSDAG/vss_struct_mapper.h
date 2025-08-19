@@ -7,7 +7,9 @@
 #include <variant>
 #include <chrono>
 #include <optional>
-#include "signal_mapper.h"
+#include "signal_mapping_types.h"
+#include "vss_types.h"
+#include "lua_mapper.h"
 
 namespace can_to_vss {
 

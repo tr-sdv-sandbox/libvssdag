@@ -40,6 +40,16 @@ if(NOT yaml-cpp_FOUND)
     FetchContent_MakeAvailable(yaml-cpp)
 endif()
 
+# Fetch moodycamel concurrent queue
+message(STATUS "Fetching moodycamel::ConcurrentQueue")
+include(FetchContent)
+FetchContent_Declare(
+    moodycamel
+    GIT_REPOSITORY https://github.com/cameron314/concurrentqueue.git
+    GIT_TAG v1.0.4
+)
+FetchContent_MakeAvailable(moodycamel)
+
 # Find dbcppp (DBC parser library)
 find_package(dbcppp QUIET)
 if(NOT dbcppp_FOUND)
@@ -57,15 +67,16 @@ endif()
 include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${LUA_INCLUDE_DIR}
+    ${moodycamel_SOURCE_DIR}
 )
 
 # Create static library with all the core functionality
 add_library(VSSDAG STATIC
     src/can/dbc_parser.cpp
     src/can/can_reader.cpp
+    src/can/can_signal_source.cpp
     src/lua_mapper.cpp
     src/vss_formatter.cpp
-    src/signal_mapper.cpp
     src/signal_dag.cpp
     src/signal_processor_dag.cpp
     src/vss_struct_mapper.cpp

@@ -115,4 +115,20 @@ std::unordered_map<std::string, DBCParser::EnumMap> DBCParser::get_all_signal_en
     return signal_enums_;
 }
 
+std::optional<uint32_t> DBCParser::get_message_id_for_signal(const std::string& signal_name) const {
+    if (!network_) {
+        return std::nullopt;
+    }
+    
+    for (const auto& msg : network_->Messages()) {
+        for (const auto& sig : msg.Signals()) {
+            if (sig.Name() == signal_name) {
+                return msg.Id();
+            }
+        }
+    }
+    
+    return std::nullopt;
+}
+
 } // namespace can_to_vss

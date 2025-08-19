@@ -4,6 +4,7 @@
 #include <memory>
 #include <unordered_map>
 #include <vector>
+#include <optional>
 #include <dbcppp/Network.h>
 
 namespace can_to_vss {
@@ -28,6 +29,9 @@ public:
     
     // Get all signals with their enum mappings
     std::unordered_map<std::string, EnumMap> get_all_signal_enums() const;
+    
+    // Get the CAN message ID that contains a specific signal
+    std::optional<uint32_t> get_message_id_for_signal(const std::string& signal_name) const;
 
 private:
     std::string dbc_file_;

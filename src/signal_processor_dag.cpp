@@ -7,15 +7,12 @@ namespace can_to_vss {
 
 SignalProcessorDAG::SignalProcessorDAG() 
     : dag_(std::make_unique<SignalDAG>()),
-      lua_mapper_(std::make_unique<LuaMapper>()),
-      dbc_parser_(nullptr) {
+      lua_mapper_(std::make_unique<LuaMapper>()) {
 }
 
 SignalProcessorDAG::~SignalProcessorDAG() = default;
 
-bool SignalProcessorDAG::initialize(const std::unordered_map<std::string, SignalMapping>& mappings,
-                                   const DBCParser* dbc_parser) {
-    dbc_parser_ = dbc_parser;
+bool SignalProcessorDAG::initialize(const std::unordered_map<std::string, SignalMapping>& mappings) {
     
     // Build the DAG
     if (!dag_->build(mappings)) {
@@ -79,10 +76,11 @@ end
 
 -- Provide value (only allowed to set own provided value)
 function provide(value)
-    if not _current_provides then
+    if not _current_signal then
         error("provide() called outside signal context")
     end
-    signal_values[_current_provides] = value
+    -- Use bracket notation for signal names with dots
+    signal_values[_current_signal] = value
     return value
 end
 
@@ -266,7 +264,7 @@ void SignalProcessorDAG::generate_transform_function(const SignalNode* node) {
     lua << "transform_functions['" << node->signal_name << "'] = function(value)\n";
     
     // For derived signals, value parameter is ignored
-    if (!node->is_can_signal) {
+    if (!node->is_input_signal) {
         lua << "    -- Derived signal, dependencies in 'deps' table\n";
     }
     
@@ -274,7 +272,7 @@ void SignalProcessorDAG::generate_transform_function(const SignalNode* node) {
     if (std::holds_alternative<CodeTransform>(node->mapping.transform)) {
         const auto& code = std::get<CodeTransform>(node->mapping.transform);
         
-        if (node->is_can_signal) {
+        if (node->is_input_signal) {
             lua << "    local x = value\n";
         }
         
@@ -295,19 +293,12 @@ void SignalProcessorDAG::generate_transform_function(const SignalNode* node) {
             lua << "    local result = eval_expression()\n";
             
             // Provide if needed
-            if (!node->provides.empty() && node->provides != node->signal_name) {
-                lua << "    if result ~= nil then provide(result) end\n";
-            }
+            lua << "    if result ~= nil then provide(result) end\n";
             
             // Create VSS signal
             lua << "    if result ~= nil then\n";
-            if (!node->mapping.vss_path.empty()) {
-                lua << "        return create_vss_signal('" << node->mapping.vss_path 
-                    << "', result, '" << node->mapping.datatype << "')\n";
-            } else {
-                lua << "        return create_vss_signal('Custom." << node->signal_name 
-                    << "', result, '" << node->mapping.datatype << "')\n";
-            }
+            lua << "        return create_vss_signal('" << node->signal_name 
+                << "', result, '" << node->mapping.datatype << "')\n";
             lua << "    end\n";
             lua << "    return nil\n";
         } else {
@@ -315,18 +306,10 @@ void SignalProcessorDAG::generate_transform_function(const SignalNode* node) {
             lua << "    local result = " << code.expression << "\n";
             
             // Only provide if this signal declares a provides value
-            if (!node->provides.empty() && node->provides != node->signal_name) {
-                lua << "    provide(result)\n";
-            }
+            lua << "    provide(result)\n";
             
-            if (!node->mapping.vss_path.empty()) {
-                lua << "    return create_vss_signal('" << node->mapping.vss_path 
-                    << "', result, '" << node->mapping.datatype << "')\n";
-            } else {
-                // Use a custom namespace for internal signals
-                lua << "    return create_vss_signal('Custom." << node->signal_name 
-                    << "', result, '" << node->mapping.datatype << "')\n";
-            }
+            lua << "    return create_vss_signal('" << node->signal_name 
+                << "', result, '" << node->mapping.datatype << "')\n";
         }
             
     } else if (std::holds_alternative<ValueMapping>(node->mapping.transform)) {
@@ -364,41 +347,27 @@ void SignalProcessorDAG::generate_transform_function(const SignalNode* node) {
         lua << "        end\n";
         lua << "    end\n";
         
-        // Provide if needed
-        if (!node->provides.empty() && node->provides != node->signal_name) {
-            lua << "    if result ~= nil then provide(result) end\n";
-        }
+        // Always provide the result
+        lua << "    if result ~= nil then provide(result) end\n";
         
         lua << "    if result ~= nil then\n";
-        if (!node->mapping.vss_path.empty()) {
-            lua << "        return create_vss_signal('" << node->mapping.vss_path 
-                << "', result, '" << node->mapping.datatype << "')\n";
-        } else {
-            lua << "        return create_vss_signal('Custom." << node->signal_name 
-                << "', result, '" << node->mapping.datatype << "')\n";
-        }
+        lua << "        return create_vss_signal('" << node->signal_name 
+            << "', result, '" << node->mapping.datatype << "')\n";
         lua << "    end\n";
         lua << "    return nil\n";
         
     } else {
         // DirectMapping
-        if (node->is_can_signal) {
+        if (node->is_input_signal) {
             lua << "    local result = value\n";
         } else {
             lua << "    local result = nil  -- DirectMapping not valid for derived signals\n";
         }
         
-        if (!node->provides.empty() && node->provides != node->signal_name) {
-            lua << "    provide(result)\n";
-        }
+        lua << "    provide(result)\n";
         
-        if (!node->mapping.vss_path.empty()) {
-            lua << "    return create_vss_signal('" << node->mapping.vss_path 
-                << "', result, '" << node->mapping.datatype << "')\n";
-        } else {
-            lua << "    return create_vss_signal('Custom." << node->signal_name 
-                << "', result, '" << node->mapping.datatype << "')\n";
-        }
+        lua << "    return create_vss_signal('" << node->signal_name 
+            << "', result, '" << node->mapping.datatype << "')\n";
     }
     
     lua << "end\n";
@@ -418,11 +387,9 @@ std::vector<VSSSignal> SignalProcessorDAG::process_can_signals(
     // Update CAN signal values and mark nodes as updated
     for (const auto& [signal_name, value] : can_signals) {
         if (auto* node = dag_->get_node(signal_name)) {
-            if (node->is_can_signal) {
-                VLOG(2) << "Updating CAN signal " << signal_name << " = " << value 
-                        << " (provides: " << node->provides << ")";
-                // Store the value
-                signal_values_[node->provides] = value;
+            if (node->is_input_signal) {
+                VLOG(2) << "Updating input signal " << signal_name << " = " << value;
+                // Store the raw value on the node (transform will be applied during processing)
                 node->last_value = value;
                 node->last_update = std::chrono::steady_clock::now();
                 
@@ -563,7 +530,7 @@ std::optional<VSSSignal> SignalProcessorDAG::process_node(SignalNode* node) {
     
     // Get input value
     double input_value = 0.0;
-    if (node->is_can_signal) {
+    if (node->is_input_signal) {
         // For CAN signals, use the last value
         input_value = node->last_value;
     }
@@ -575,16 +542,14 @@ std::optional<VSSSignal> SignalProcessorDAG::process_node(SignalNode* node) {
     
     // Update provided value if transform succeeded
     if (result.has_value()) {
-        if (!node->provides.empty()) {
-            // Get the provided value from Lua
-            auto provided_value = lua_mapper_->get_lua_variable("signal_values." + node->provides);
-            if (provided_value.has_value()) {
-                try {
-                    signal_values_[node->provides] = std::stod(provided_value.value());
-                } catch (...) {
-                    // Value might be a string, store as 0 for now
-                    signal_values_[node->provides] = 0.0;
-                }
+        // Get the provided value from Lua
+        auto provided_value = lua_mapper_->get_lua_variable("signal_values['" + node->signal_name + "']");
+        if (provided_value.has_value()) {
+            try {
+                signal_values_[node->signal_name] = std::stod(provided_value.value());
+            } catch (...) {
+                // Value might be a string, store as 0 for now
+                signal_values_[node->signal_name] = 0.0;
             }
         }
     }
@@ -596,7 +561,6 @@ void SignalProcessorDAG::setup_node_context(const SignalNode* node) {
     // Set current signal context
     std::stringstream context;
     context << "_current_signal = '" << node->signal_name << "'\n";
-    context << "_current_provides = '" << node->provides << "'\n";
     
     // Set current timestamp (seconds since epoch with microsecond precision)
     auto now = std::chrono::steady_clock::now();
@@ -608,30 +572,41 @@ void SignalProcessorDAG::setup_node_context(const SignalNode* node) {
     context << "deps = {}\n";
     
     for (const auto& dep : node->depends_on) {
-        if (auto* provider = dag_->get_provider(dep)) {
-            auto it = signal_values_.find(dep);
-            if (it != signal_values_.end()) {
-                context << "deps." << dep << " = " << it->second << "\n";
-            } else {
-                // Explicitly set nil for missing dependencies
-                context << "deps." << dep << " = nil\n";
-            }
+        auto it = signal_values_.find(dep);
+        if (it != signal_values_.end()) {
+            context << "deps['" << dep << "'] = " << it->second << "\n";
+        } else {
+            // Explicitly set nil for missing dependencies
+            context << "deps['" << dep << "'] = nil\n";
         }
     }
     
     lua_mapper_->execute_lua_string(context.str());
 }
 
-std::vector<std::string> SignalProcessorDAG::get_required_can_signals() const {
+std::vector<std::string> SignalProcessorDAG::get_required_input_signals() const {
     std::vector<std::string> signals;
     
     for (const auto& node : dag_->get_nodes()) {
-        if (node->is_can_signal) {
+        if (node->is_input_signal) {
             signals.push_back(node->signal_name);
         }
     }
     
     return signals;
+}
+
+std::vector<VSSSignal> SignalProcessorDAG::process_signal_updates(
+    const std::vector<vssdag::SignalUpdate>& updates) {
+    // Convert SignalUpdate format to the existing format
+    std::vector<std::pair<std::string, double>> signal_pairs;
+    signal_pairs.reserve(updates.size());
+    
+    for (const auto& update : updates) {
+        signal_pairs.emplace_back(update.signal_name, update.value);
+    }
+    
+    return process_can_signals(signal_pairs);
 }
 
 } // namespace can_to_vss
