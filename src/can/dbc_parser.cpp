@@ -2,6 +2,8 @@
 #include <dbcppp/Network.h>
 #include <glog/logging.h>
 #include <fstream>
+#include <cmath>
+#include <limits>
 
 namespace can_to_vss {
 
@@ -48,8 +50,8 @@ bool DBCParser::parse() {
     }
 }
 
-std::vector<std::pair<std::string, double>> DBCParser::decode_message(uint32_t can_id, const uint8_t* data, size_t length) const {
-    std::vector<std::pair<std::string, double>> decoded_signals;
+std::unordered_map<std::string, DBCDecodedValue> DBCParser::decode_message(uint32_t can_id, const uint8_t* data, size_t length) const {
+    std::unordered_map<std::string, DBCDecodedValue> decoded_signals;
     
     if (!network_) {
         LOG(ERROR) << "Network not initialized";
@@ -62,8 +64,28 @@ std::vector<std::pair<std::string, double>> DBCParser::decode_message(uint32_t c
                 try {
                     double raw_value = sig.Decode(data);
                     double physical_value = sig.RawToPhys(raw_value);
-                    decoded_signals.emplace_back(sig.Name(), physical_value);
-                    VLOG(2) << "Decoded signal " << sig.Name() << " = " << physical_value;
+                    
+                    DBCDecodedValue decoded_value;
+                    
+                    // Check if this signal has enum mappings
+                    bool has_enums = (signal_enums_.find(sig.Name()) != signal_enums_.end());
+                    decoded_value.has_enums = has_enums;
+                    
+                    // Determine type based on signal properties
+                    // Check if the physical value is an integer
+                    if (std::floor(physical_value) == physical_value && 
+                        physical_value >= std::numeric_limits<int64_t>::min() &&
+                        physical_value <= std::numeric_limits<int64_t>::max()) {
+                        // It's an integer
+                        decoded_value.value = static_cast<int64_t>(physical_value);
+                        VLOG(2) << "Decoded signal " << sig.Name() << " = " << static_cast<int64_t>(physical_value) << " (int)";
+                    } else {
+                        // It's a float
+                        decoded_value.value = physical_value;
+                        VLOG(2) << "Decoded signal " << sig.Name() << " = " << physical_value << " (float)";
+                    }
+                    
+                    decoded_signals[sig.Name()] = std::move(decoded_value);
                 } catch (const std::exception& e) {
                     LOG(WARNING) << "Failed to decode signal " << sig.Name() << ": " << e.what();
                 }
@@ -73,6 +95,53 @@ std::vector<std::pair<std::string, double>> DBCParser::decode_message(uint32_t c
     }
     
     return decoded_signals;
+}
+
+std::vector<DBCSignalUpdate> DBCParser::decode_message_as_updates(uint32_t can_id, const uint8_t* data, size_t length) const {
+    std::vector<DBCSignalUpdate> updates;
+    
+    if (!network_) {
+        LOG(ERROR) << "Network not initialized";
+        return updates;
+    }
+
+    for (const auto& msg : network_->Messages()) {
+        if (msg.Id() == can_id) {
+            for (const auto& sig : msg.Signals()) {
+                try {
+                    double raw_value = sig.Decode(data);
+                    double physical_value = sig.RawToPhys(raw_value);
+                    
+                    DBCSignalUpdate update;
+                    update.dbc_signal_name = sig.Name();
+                    
+                    // Check if this signal has enum mappings
+                    update.has_enums = (signal_enums_.find(sig.Name()) != signal_enums_.end());
+                    
+                    // Determine type based on signal properties
+                    // Check if the physical value is an integer
+                    if (std::floor(physical_value) == physical_value && 
+                        physical_value >= std::numeric_limits<int64_t>::min() &&
+                        physical_value <= std::numeric_limits<int64_t>::max()) {
+                        // It's an integer
+                        update.value = static_cast<int64_t>(physical_value);
+                        VLOG(2) << "Decoded signal " << sig.Name() << " = " << static_cast<int64_t>(physical_value) << " (int)";
+                    } else {
+                        // It's a float
+                        update.value = physical_value;
+                        VLOG(2) << "Decoded signal " << sig.Name() << " = " << physical_value << " (float)";
+                    }
+                    
+                    updates.push_back(std::move(update));
+                } catch (const std::exception& e) {
+                    LOG(WARNING) << "Failed to decode signal " << sig.Name() << ": " << e.what();
+                }
+            }
+            break;
+        }
+    }
+    
+    return updates;
 }
 
 bool DBCParser::has_message(uint32_t can_id) const {

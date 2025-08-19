@@ -30,7 +30,6 @@ struct SignalNode {
     
     // Runtime state
     bool has_new_data = false;
-    double last_value = 0.0;
     std::chrono::steady_clock::time_point last_update;
     
     // Output throttling

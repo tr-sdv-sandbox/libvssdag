@@ -7,14 +7,16 @@
 #include <optional>
 #include <unordered_map>
 #include <functional>
+#include <variant>
 #include <yaml-cpp/yaml.h>
 //#include "base_types.h"
 
 namespace vssdag {
 
+// Signal update with type information preserved
 struct SignalUpdate {
     std::string signal_name;  // Exported signal name
-    double value;
+    std::variant<int64_t, double, std::string> value;  // Typed value
     std::chrono::steady_clock::time_point timestamp;
 };
 

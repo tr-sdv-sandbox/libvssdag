@@ -163,8 +163,12 @@ VSSSignal LuaMapper::extract_vss_signal(int index) {
     } else if (lua_type(L_, -1) == LUA_TTABLE) {
         // Handle struct values (Lua tables)
         if (signal.value_type == "struct" || signal.value_type.find("Types.") == 0) {
-            // Convert Lua table to VSS struct
-            VSSValue vss_value = VSSTypeHelper::from_lua_table(L_, -1, signal.value_type);
+            // Convert Lua table to VSS struct with proper type handling
+            VSSDataType vss_type = vss_datatype_from_string(signal.value_type);
+            if (vss_type == VSSDataType::Unknown && signal.value_type == "struct") {
+                vss_type = VSSDataType::Struct;
+            }
+            VSSValue vss_value = VSSTypeHelper::from_lua_table_typed(L_, -1, vss_type);
             signal.value = VSSTypeHelper::to_json(vss_value);
         } else {
             // Unknown table type, use JSON representation
@@ -266,8 +270,12 @@ std::optional<VSSSignal> LuaMapper::extract_vss_signal_from_stack() {
     } else if (lua_type(L_, -1) == LUA_TTABLE) {
         // Handle struct values (Lua tables)
         if (signal.value_type == "struct" || signal.value_type.find("Types.") == 0) {
-            // Convert Lua table to VSS struct
-            VSSValue vss_value = VSSTypeHelper::from_lua_table(L_, -1, signal.value_type);
+            // Convert Lua table to VSS struct with proper type handling
+            VSSDataType vss_type = vss_datatype_from_string(signal.value_type);
+            if (vss_type == VSSDataType::Unknown && signal.value_type == "struct") {
+                vss_type = VSSDataType::Struct;
+            }
+            VSSValue vss_value = VSSTypeHelper::from_lua_table_typed(L_, -1, vss_type);
             signal.value = VSSTypeHelper::to_json(vss_value);
         } else {
             // Unknown table type, use JSON representation

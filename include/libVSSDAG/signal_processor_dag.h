@@ -4,6 +4,7 @@
 #include <unordered_map>
 #include <vector>
 #include <chrono>
+#include <variant>
 #include "signal_dag.h"
 #include "lua_mapper.h"
 #include "signal_source.h"
@@ -18,10 +19,6 @@ public:
     // Initialize with mappings
     bool initialize(const std::unordered_map<std::string, SignalMapping>& mappings);
     
-    // Process CAN signals and return VSS signals
-    std::vector<VSSSignal> process_can_signals(
-        const std::vector<std::pair<std::string, double>>& can_signals);
-    
     // Process signal updates from signal sources
     std::vector<VSSSignal> process_signal_updates(
         const std::vector<vssdag::SignalUpdate>& updates);
@@ -34,7 +31,7 @@ private:
     std::unique_ptr<LuaMapper> lua_mapper_;
     
     // Current values for all provided signals
-    std::unordered_map<std::string, double> signal_values_;
+    std::unordered_map<std::string, std::variant<int64_t, double, std::string>> signal_values_;
     
     // Track last processing time for periodic updates
     std::chrono::steady_clock::time_point last_periodic_check_;

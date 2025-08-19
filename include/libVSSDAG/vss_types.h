@@ -8,6 +8,74 @@
 
 namespace can_to_vss {
 
+// VSS data type enumeration
+enum class VSSDataType {
+    // Integer types
+    Int8,
+    Int16,
+    Int32,
+    Int64,
+    UInt8,
+    UInt16,
+    UInt32,
+    UInt64,
+    
+    // Floating point types
+    Float,
+    Double,
+    
+    // Other primitive types
+    Boolean,
+    String,
+    
+    // Complex types
+    Struct,
+    Array,
+    
+    // Unknown/Invalid
+    Unknown
+};
+
+// Helper to convert string datatype to enum
+inline VSSDataType vss_datatype_from_string(const std::string& datatype) {
+    if (datatype == "int8") return VSSDataType::Int8;
+    if (datatype == "int16") return VSSDataType::Int16;
+    if (datatype == "int32") return VSSDataType::Int32;
+    if (datatype == "int64") return VSSDataType::Int64;
+    if (datatype == "uint8") return VSSDataType::UInt8;
+    if (datatype == "uint16") return VSSDataType::UInt16;
+    if (datatype == "uint32") return VSSDataType::UInt32;
+    if (datatype == "uint64") return VSSDataType::UInt64;
+    if (datatype == "float") return VSSDataType::Float;
+    if (datatype == "double") return VSSDataType::Double;
+    if (datatype == "boolean") return VSSDataType::Boolean;
+    if (datatype == "string") return VSSDataType::String;
+    if (datatype == "struct") return VSSDataType::Struct;
+    if (datatype == "array") return VSSDataType::Array;
+    return VSSDataType::Unknown;
+}
+
+// Helper to convert enum to string
+inline const char* vss_datatype_to_string(VSSDataType type) {
+    switch (type) {
+        case VSSDataType::Int8: return "int8";
+        case VSSDataType::Int16: return "int16";
+        case VSSDataType::Int32: return "int32";
+        case VSSDataType::Int64: return "int64";
+        case VSSDataType::UInt8: return "uint8";
+        case VSSDataType::UInt16: return "uint16";
+        case VSSDataType::UInt32: return "uint32";
+        case VSSDataType::UInt64: return "uint64";
+        case VSSDataType::Float: return "float";
+        case VSSDataType::Double: return "double";
+        case VSSDataType::Boolean: return "boolean";
+        case VSSDataType::String: return "string";
+        case VSSDataType::Struct: return "struct";
+        case VSSDataType::Array: return "array";
+        default: return "unknown";
+    }
+}
+
 // VSS primitive types
 using VSSInt8 = int8_t;
 using VSSInt16 = int16_t;
@@ -52,67 +120,21 @@ struct VSSArray {
 // Helper class for type conversion and formatting
 class VSSTypeHelper {
 public:
-    // Convert Lua value to appropriate VSS type based on datatype string
-    static VSSValue from_lua_value(double lua_number, const std::string& datatype);
-    static VSSValue from_lua_string(const std::string& lua_string, const std::string& datatype);
-    static VSSValue from_lua_boolean(bool lua_bool);
-    static VSSValue from_lua_table(void* lua_state, int table_index, const std::string& datatype);
+    // Convert typed value to appropriate VSS type based on VSS data type enum
+    static VSSValue from_typed_value(const std::variant<int64_t, double, std::string>& value, VSSDataType target_type);
+    
+    // Convert Lua table to VSS struct/array with proper type handling
+    static VSSValue from_lua_table_typed(void* lua_state, int table_index, VSSDataType datatype);
+    
+    // Push typed value to Lua stack preserving type information
+    static void push_typed_value_to_lua(void* lua_state, const std::variant<int64_t, double, std::string>& value);
+    
+    // Push VSS value to Lua stack preserving type information
+    static void push_vss_value_to_lua(void* lua_state, const VSSValue& value);
     
     // Format VSS value as string for output
     static std::string to_string(const VSSValue& value);
     static std::string to_json(const VSSValue& value);
-    
-    // Type checking utilities
-    static bool is_numeric_type(const std::string& datatype);
-    static bool is_integer_type(const std::string& datatype);
-    static bool is_unsigned_type(const std::string& datatype);
-    static bool is_struct_type(const std::string& datatype);
-    static bool is_array_type(const std::string& datatype);
-    
-    // Convert string datatype to appropriate cast
-    template<typename T>
-    static T cast_numeric(double value);
 };
-
-// Template specializations for numeric casting
-template<> inline VSSInt8 VSSTypeHelper::cast_numeric<VSSInt8>(double value) {
-    return static_cast<VSSInt8>(value);
-}
-
-template<> inline VSSInt16 VSSTypeHelper::cast_numeric<VSSInt16>(double value) {
-    return static_cast<VSSInt16>(value);
-}
-
-template<> inline VSSInt32 VSSTypeHelper::cast_numeric<VSSInt32>(double value) {
-    return static_cast<VSSInt32>(value);
-}
-
-template<> inline VSSInt64 VSSTypeHelper::cast_numeric<VSSInt64>(double value) {
-    return static_cast<VSSInt64>(value);
-}
-
-template<> inline VSSUInt8 VSSTypeHelper::cast_numeric<VSSUInt8>(double value) {
-    return static_cast<VSSUInt8>(value);
-}
-
-template<> inline VSSUInt16 VSSTypeHelper::cast_numeric<VSSUInt16>(double value) {
-    return static_cast<VSSUInt16>(value);
-}
-
-template<> inline VSSUInt32 VSSTypeHelper::cast_numeric<VSSUInt32>(double value) {
-    return static_cast<VSSUInt32>(value);
-}
-
-template<> inline VSSUInt64 VSSTypeHelper::cast_numeric<VSSUInt64>(double value) {
-    return static_cast<VSSUInt64>(value);
-}
-
-template<> inline VSSFloat VSSTypeHelper::cast_numeric<VSSFloat>(double value) {
-    return static_cast<VSSFloat>(value);
-}
-
-template<> inline VSSDouble VSSTypeHelper::cast_numeric<VSSDouble>(double value) {
-    return value;
-}
 
 } // namespace can_to_vss
