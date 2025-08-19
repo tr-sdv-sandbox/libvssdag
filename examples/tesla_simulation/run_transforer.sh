@@ -9,7 +9,7 @@ DBC_FILE="${2:-Model3CAN.dbc}"
 MAPPING_FILE="${3:-model3_mappings_dag.yaml}"
 
 # Binary location (adjust if needed)
-CAN_TO_VSS_BIN="../../build/can-to-vss-dag"
+TRANSFORMER_BIN="../../build/can_transformer"
 
 # Output log file
 LOG_FILE="can_to_vss_dag_$(date +%Y%m%d_%H%M%S).log"
@@ -24,12 +24,12 @@ NC='\033[0m' # No Color
 echo -e "${GREEN}=== CAN to VSS DAG Converter ===${NC}"
 
 # Check if binary exists
-if [ ! -f "$CAN_TO_VSS_BIN" ]; then
-    echo -e "${RED}Error: CAN to VSS DAG binary not found: $CAN_TO_VSS_BIN${NC}"
+if [ ! -f "$TRANSFORMER_BIN" ]; then
+    echo -e "${RED}Error: CAN to VSS DAG binary not found: ${NC}"
     echo -e "${YELLOW}Please build the project first:${NC}"
     echo "  cd build"
     echo "  cmake .."
-    echo "  make can-to-vss-dag"
+    echo "  make "
     exit 1
 fi
 
@@ -96,7 +96,7 @@ case $GLOG_v in
 esac
 
 # Run and tee output to both console and log file
-$CAN_TO_VSS_BIN "$DBC_FILE" "$MAPPING_FILE" "$VCAN_INTERFACE" 2>&1 | tee "$LOG_FILE"
+$TRANSFORMER_BIN "$DBC_FILE" "$MAPPING_FILE" "$VCAN_INTERFACE" 2>&1 | tee "$LOG_FILE"
 
 # Alternative: Run with only VSS output visible (no debug logs)
 # To use this, comment out the line above and uncomment below:

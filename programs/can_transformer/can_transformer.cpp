@@ -4,14 +4,10 @@
 #include <csignal>
 #include <iostream>
 #include <chrono>
-#include <queue>
-#include <mutex>
-#include <condition_variable>
 #include <yaml-cpp/yaml.h>
-#include "dbc_parser.h"
-#include "can_reader.h"
-#include "signal_processor_dag.h"
-#include "vss_formatter.h"
+#include "libVSSDAG/can/can_signal_source.h"
+#include "libVSSDAG/signal_processor_dag.h"
+#include "libVSSDAG/vss_formatter.h"
 
 std::atomic<bool> g_running(true);
 
@@ -52,13 +48,6 @@ int main(int argc, char* argv[]) {
     LOG(INFO) << "Mapping file: " << yaml_file;
     LOG(INFO) << "CAN interface: " << can_interface;
     
-    // Initialize components
-    DBCParser dbc_parser(dbc_file);
-    if (!dbc_parser.parse()) {
-        LOG(ERROR) << "Failed to parse DBC file";
-        return 1;
-    }
-    
     // Parse YAML directly for DAG
     YAML::Node root = YAML::LoadFile(yaml_file);
     if (!root["mappings"]) {
@@ -76,16 +65,13 @@ int main(int argc, char* argv[]) {
         
         std::string signal_name = mapping_node["signal"].as<std::string>();
         
-        // Check if this is a DBC signal (has dbc_name field)
-        std::string dbc_signal_name = signal_name;
-        if (mapping_node["dbc_name"]) {
-            dbc_signal_name = mapping_node["dbc_name"].as<std::string>();
-        }
-        
         SignalMapping mapping;
-        // vss_path is optional for intermediate signals
-        if (mapping_node["vss_path"]) {
-            mapping.vss_path = mapping_node["vss_path"].as<std::string>();
+        
+        // Parse source information if present
+        if (mapping_node["source"]) {
+            const auto& source_node = mapping_node["source"];
+            mapping.source.type = source_node["type"].as<std::string>();
+            mapping.source.name = source_node["name"].as<std::string>();
         }
         mapping.datatype = mapping_node["datatype"].as<std::string>("double");
         mapping.interval_ms = mapping_node["interval_ms"].as<int>(0);
@@ -99,9 +85,6 @@ int main(int argc, char* argv[]) {
         }
         
         // DAG support
-        if (mapping_node["provides"]) {
-            mapping.provides = mapping_node["provides"].as<std::string>();
-        }
         if (mapping_node["depends_on"]) {
             for (const auto& dep : mapping_node["depends_on"]) {
                 mapping.depends_on.push_back(dep.as<std::string>());
@@ -143,87 +126,46 @@ int main(int argc, char* argv[]) {
             }
         }
         
-        // Store using DBC name for DBC signals, logical name for derived signals
-        if (mapping_node["dbc_name"]) {
-            // For DBC signals, use the DBC name as the key
-            dag_mappings[dbc_signal_name] = mapping;
-        } else {
-            // For derived signals, use the logical name
-            dag_mappings[signal_name] = mapping;
-        }
+        // Store mapping
+        dag_mappings[signal_name] = mapping;
     }
     
     // Initialize DAG processor
     SignalProcessorDAG processor;
-    if (!processor.initialize(dag_mappings, &dbc_parser)) {
+    if (!processor.initialize(dag_mappings)) {
         LOG(ERROR) << "Failed to initialize DAG processor";
         return 1;
     }
     
-    auto can_reader = std::make_unique<SocketCANReader>();
-    if (!can_reader->open(can_interface)) {
-        LOG(ERROR) << "Failed to open CAN interface";
+    // Create CAN signal source
+    auto can_source = std::make_unique<vssdag::CANSignalSource>(
+        can_interface, dbc_file, dag_mappings);
+    
+    if (!can_source->initialize()) {
+        LOG(ERROR) << "Failed to initialize CAN signal source";
         return 1;
     }
     
-    auto required_signals = processor.get_required_can_signals();
-    LOG(INFO) << "Monitoring " << required_signals.size() << " CAN signals:";
+    auto required_signals = processor.get_required_input_signals();
+    LOG(INFO) << "Monitoring " << required_signals.size() << " input signals:";
     for (const auto& signal : required_signals) {
         LOG(INFO) << "  - " << signal;
     }
     
-    // Queue to collect CAN frames
-    std::queue<std::pair<CANFrame, std::chrono::steady_clock::time_point>> frame_queue;
-    std::mutex queue_mutex;
-    std::condition_variable queue_cv;
-    
-    // Set up CAN frame handler - just queue frames
-    can_reader->set_frame_handler([&](const CANFrame& frame) {
-        VLOG(3) << "Received CAN frame ID: 0x" << std::hex << frame.id;
-        std::lock_guard<std::mutex> lock(queue_mutex);
-        frame_queue.push({frame, std::chrono::steady_clock::now()});
-        queue_cv.notify_one();
-    });
-    
-    // Start reading CAN frames
-    std::thread reader_thread([&]() {
-        can_reader->read_loop();
-    });
-    
-    // Main processing loop - single thread handles everything
+    // Main processing loop - poll signal sources
     auto last_periodic_check = std::chrono::steady_clock::now();
     const auto processing_interval = std::chrono::milliseconds(10);  // Process every 10ms
     
     while (g_running) {
         auto loop_start = std::chrono::steady_clock::now();
         
-        // Collect all pending CAN frames
-        std::vector<std::pair<std::string, double>> all_can_signals;
-        {
-            std::unique_lock<std::mutex> lock(queue_mutex);
-            // Wait for frames with timeout
-            queue_cv.wait_for(lock, processing_interval, [&]() { 
-                return !frame_queue.empty() || !g_running; 
-            });
-            
-            // Process all queued frames
-            while (!frame_queue.empty()) {
-                const auto& [frame, timestamp] = frame_queue.front();
-                auto decoded_signals = dbc_parser.decode_message(
-                    frame.id, frame.data.data(), frame.data.size());
-                
-                // Accumulate all signals
-                all_can_signals.insert(all_can_signals.end(), 
-                    decoded_signals.begin(), decoded_signals.end());
-                
-                frame_queue.pop();
-            }
-        }
+        // Poll signal source for updates
+        auto signal_updates = can_source->poll();
         
-        // Process accumulated CAN signals (if any)
-        if (!all_can_signals.empty()) {
-            VLOG(2) << "Processing " << all_can_signals.size() << " CAN signals";
-            auto vss_signals = processor.process_can_signals(all_can_signals);
+        // Process signal updates (if any)
+        if (!signal_updates.empty()) {
+            VLOG(2) << "Processing " << signal_updates.size() << " signal updates";
+            auto vss_signals = processor.process_signal_updates(signal_updates);
             VLOG(2) << "Produced " << vss_signals.size() << " VSS signals";
             for (const auto& vss : vss_signals) {
                 VSSFormatter::log_vss_signal(vss);
@@ -238,7 +180,7 @@ int main(int argc, char* argv[]) {
         if (elapsed_ms >= 50) {  // Check every 50ms
             VLOG(3) << "Periodic check triggered";
             // Process with empty signals to trigger periodic updates
-            auto vss_signals = processor.process_can_signals({});
+            auto vss_signals = processor.process_signal_updates({});
             
             if (!vss_signals.empty()) {
                 VLOG(2) << "Periodic processing produced " << vss_signals.size() << " signals";
@@ -258,9 +200,8 @@ int main(int argc, char* argv[]) {
         }
     }
     
-    // Stop reader
-    can_reader->stop();
-    reader_thread.join();
+    // Stop signal source
+    can_source->stop();
     
     LOG(INFO) << "CAN to VSS DAG converter stopped";
     return 0;

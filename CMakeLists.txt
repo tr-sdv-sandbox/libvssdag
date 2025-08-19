@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.14)
-project(VSSDAG VERSION 1.0.0 LANGUAGES CXX)
+project(libVSSDAG VERSION 1.0.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -40,6 +40,16 @@ if(NOT yaml-cpp_FOUND)
     FetchContent_MakeAvailable(yaml-cpp)
 endif()
 
+# Fetch moodycamel concurrent queue
+message(STATUS "Fetching moodycamel::ConcurrentQueue")
+include(FetchContent)
+FetchContent_Declare(
+    moodycamel
+    GIT_REPOSITORY https://github.com/cameron314/concurrentqueue.git
+    GIT_TAG v1.0.4
+)
+FetchContent_MakeAvailable(moodycamel)
+
 # Find dbcppp (DBC parser library)
 find_package(dbcppp QUIET)
 if(NOT dbcppp_FOUND)
@@ -57,15 +67,16 @@ endif()
 include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${LUA_INCLUDE_DIR}
+    ${moodycamel_SOURCE_DIR}
 )
 
 # Create static library with all the core functionality
 add_library(VSSDAG STATIC
-    src/dbc_parser.cpp
-    src/can_reader.cpp
+    src/can/dbc_parser.cpp
+    src/can/can_reader.cpp
+    src/can/can_signal_source.cpp
     src/lua_mapper.cpp
     src/vss_formatter.cpp
-    src/signal_mapper.cpp
     src/signal_dag.cpp
     src/signal_processor_dag.cpp
     src/vss_struct_mapper.cpp
@@ -90,16 +101,8 @@ target_include_directories(VSSDAG
         ${LUA_INCLUDE_DIR}
 )
 
-# Create DAG-based executable
-add_executable(can-to-vss-dag
-    programs/main_yaml_dag.cpp
-)
-
-# Link the executable against the library
-target_link_libraries(can-to-vss-dag
-    PRIVATE
-        VSSDAG
-)
+# Add programs subdirectory
+add_subdirectory(programs)
 
 # Install target
 install(TARGETS VSSDAG

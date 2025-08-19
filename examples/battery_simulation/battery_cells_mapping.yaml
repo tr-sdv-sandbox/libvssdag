@@ -4,93 +4,107 @@
 mappings:
   # Individual cell voltages from DBC (already scaled to V by DBC)
   - signal: cell1_voltage
-    dbc_name: Cell1_Voltage
-    provides: cell1_voltage
+    source:
+      type: dbc
+      name: Cell1_Voltage
     transform:
       code: "x"  # Already in V from DBC
       
   - signal: cell2_voltage
-    dbc_name: Cell2_Voltage
-    provides: cell2_voltage
+    source:
+      type: dbc
+      name: Cell2_Voltage
     transform:
       code: "x"
       
   - signal: cell3_voltage
-    dbc_name: Cell3_Voltage
-    provides: cell3_voltage
+    source:
+      type: dbc
+      name: Cell3_Voltage
     transform:
       code: "x"
       
   - signal: cell4_voltage
-    dbc_name: Cell4_Voltage
-    provides: cell4_voltage
+    source:
+      type: dbc
+      name: Cell4_Voltage
     transform:
       code: "x"
       
   - signal: cell5_voltage
-    dbc_name: Cell5_Voltage
-    provides: cell5_voltage
+    source:
+      type: dbc
+      name: Cell5_Voltage
     transform:
       code: "x"
       
   - signal: cell6_voltage
-    dbc_name: Cell6_Voltage
-    provides: cell6_voltage
+    source:
+      type: dbc
+      name: Cell6_Voltage
     transform:
       code: "x"
       
   - signal: cell7_voltage
-    dbc_name: Cell7_Voltage
-    provides: cell7_voltage
+    source:
+      type: dbc
+      name: Cell7_Voltage
     transform:
       code: "x"
       
   - signal: cell8_voltage
-    dbc_name: Cell8_Voltage
-    provides: cell8_voltage
+    source:
+      type: dbc
+      name: Cell8_Voltage
     transform:
       code: "x"
       
   - signal: cell9_voltage
-    dbc_name: Cell9_Voltage
-    provides: cell9_voltage
+    source:
+      type: dbc
+      name: Cell9_Voltage
     transform:
       code: "x"
       
   - signal: cell10_voltage
-    dbc_name: Cell10_Voltage
-    provides: cell10_voltage
+    source:
+      type: dbc
+      name: Cell10_Voltage
     transform:
       code: "x"
       
   - signal: cell11_voltage
-    dbc_name: Cell11_Voltage
-    provides: cell11_voltage
+    source:
+      type: dbc
+      name: Cell11_Voltage
     transform:
       code: "x"
       
   - signal: cell12_voltage
-    dbc_name: Cell12_Voltage
-    provides: cell12_voltage
+    source:
+      type: dbc
+      name: Cell12_Voltage
     transform:
       code: "x"
       
   # Min/Max cell voltages from statistics message
   - signal: min_cell_voltage
-    dbc_name: MinCellVoltage
+    source:
+      type: dbc
+      name: MinCellVoltage
     vss_path: Vehicle.Powertrain.TractionBattery.Cell.MinVoltage
     datatype: float
     interval_ms: 1000
-    provides: min_cell_voltage
     transform:
       code: "x"  # Already in V from DBC
       
   - signal: max_cell_voltage
-    dbc_name: MaxCellVoltage
+    source:
+      type: dbc
+      name: MaxCellVoltage
     vss_path: Vehicle.Powertrain.TractionBattery.Cell.MaxVoltage
     datatype: float
     interval_ms: 1000
-    provides: max_cell_voltage
     transform:
       code: "x"  # Already in V from DBC
 
@@ -258,9 +272,8 @@ mappings:
 
   # ===== Cell Discovery Tracker =====
   # Monitors which cells are available and tracks scanning patterns
-  - signal: cell_discovery_tracker
+  - signal: cell_discovery_info
     vss_path: Vehicle.Powertrain.TractionBattery.CellDiscovery  # Add VSS path to see output
-    provides: cell_discovery_info
     datatype: double  # Use double for now to see if it outputs
     interval_ms: 5000  # Report every 5 seconds
     update_trigger: both

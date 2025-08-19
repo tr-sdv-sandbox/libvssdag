@@ -8,7 +8,7 @@
 #include <stdexcept>
 #include <queue>
 #include <glog/logging.h>
-#include "signal_mapper.h"
+#include "signal_mapping_types.h"
 
 namespace can_to_vss {
 
@@ -17,14 +17,13 @@ struct SignalMapping;
 
 // Signal node in the DAG
 struct SignalNode {
-    std::string signal_name;       // CAN signal name or synthetic name
-    std::string provides;          // Value name this signal provides
-    std::vector<std::string> depends_on;  // Value names this depends on
+    std::string signal_name;       // Signal name (used in dependencies)
+    std::vector<std::string> depends_on;  // Signal names this depends on
     std::vector<SignalNode*> dependents;  // Nodes that depend on this
     
     // For topological sort
     int in_degree = 0;
-    bool is_can_signal = true;     // false for derived signals
+    bool is_input_signal = true;   // true for signals from external sources, false for derived signals
     
     // Transform configuration
     SignalMapping mapping;
@@ -67,11 +66,6 @@ public:
         return it != signal_map_.end() ? it->second : nullptr;
     }
     
-    // Get node that provides a value
-    SignalNode* get_provider(const std::string& value_name) {
-        auto it = provider_map_.find(value_name);
-        return it != provider_map_.end() ? it->second : nullptr;
-    }
     
     // Mark CAN signal as having new data
     void mark_can_signal_updated(const std::string& signal_name) {
@@ -85,7 +79,6 @@ public:
 private:
     std::vector<std::unique_ptr<SignalNode>> nodes_;
     std::unordered_map<std::string, SignalNode*> signal_map_;     // signal_name -> node
-    std::unordered_map<std::string, SignalNode*> provider_map_;   // value_name -> node
     std::vector<SignalNode*> processing_order_;
     
     bool topological_sort();
