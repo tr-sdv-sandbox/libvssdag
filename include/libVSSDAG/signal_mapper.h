@@ -7,7 +7,7 @@
 #include <variant>
 #include <chrono>
 #include "lua_mapper.h"
-#include "dbc_parser.h"
+#include "can/dbc_parser.h"
 
 namespace can_to_vss {
 

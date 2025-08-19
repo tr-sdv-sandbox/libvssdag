@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.14)
-project(VSSDAG VERSION 1.0.0 LANGUAGES CXX)
+project(libVSSDAG VERSION 1.0.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -61,8 +61,8 @@ include_directories(
 
 # Create static library with all the core functionality
 add_library(VSSDAG STATIC
-    src/dbc_parser.cpp
-    src/can_reader.cpp
+    src/can/dbc_parser.cpp
+    src/can/can_reader.cpp
     src/lua_mapper.cpp
     src/vss_formatter.cpp
     src/signal_mapper.cpp
@@ -90,16 +90,8 @@ target_include_directories(VSSDAG
         ${LUA_INCLUDE_DIR}
 )
 
-# Create DAG-based executable
-add_executable(can-to-vss-dag
-    programs/main_yaml_dag.cpp
-)
-
-# Link the executable against the library
-target_link_libraries(can-to-vss-dag
-    PRIVATE
-        VSSDAG
-)
+# Add programs subdirectory
+add_subdirectory(programs)
 
 # Install target
 install(TARGETS VSSDAG

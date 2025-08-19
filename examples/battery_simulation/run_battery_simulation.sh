@@ -32,7 +32,7 @@ fi
 VCAN_INTERFACE="${1:-vcan0}"
 DBC_FILE="$SCRIPT_DIR/BatterySimulation.dbc"
 MAPPING_FILE="$SCRIPT_DIR/battery_cells_mapping.yaml"
-CAN_TO_VSS_BIN="$PROJECT_ROOT/build/can-to-vss-dag"
+TRANSFORMER_BIN="../../build/can_handler_ex"
 
 # Check if binary exists
 if [ ! -f "$CAN_TO_VSS_BIN" ]; then
@@ -90,7 +90,7 @@ echo "Press Ctrl+C to stop"
 echo ""
 
 # Run the converter and highlight struct outputs
-$CAN_TO_VSS_BIN "$DBC_FILE" "$MAPPING_FILE" "$VCAN_INTERFACE" 2>&1 | \
+$TRANSFORMER_BIN "$DBC_FILE" "$MAPPING_FILE" "$VCAN_INTERFACE" 2>&1 | \
     grep --line-buffered -E "(VSS:.*Cells|VSS:.*Min|VSS:.*Max|Battery|cells|ERROR|WARNING)" | \
     sed -e "s/\(CellsLKV\)/$(printf '\033[32m')\1$(printf '\033[0m')/g" \
         -e "s/\(CellsWindowed\)/$(printf '\033[33m')\1$(printf '\033[0m')/g" \

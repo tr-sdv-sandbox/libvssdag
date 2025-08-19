@@ -1,4 +1,4 @@
-#include "vss_struct_mapper.h"
+#include "libVSSDAG/vss_struct_mapper.h"
 #include <yaml-cpp/yaml.h>
 #include <nlohmann/json.hpp>
 #include <glog/logging.h>

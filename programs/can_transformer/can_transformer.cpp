@@ -8,10 +8,10 @@
 #include <mutex>
 #include <condition_variable>
 #include <yaml-cpp/yaml.h>
-#include "dbc_parser.h"
-#include "can_reader.h"
-#include "signal_processor_dag.h"
-#include "vss_formatter.h"
+#include "libVSSDAG/can/dbc_parser.h"
+#include "libVSSDAG/can/can_reader.h"
+#include "libVSSDAG/signal_processor_dag.h"
+#include "libVSSDAG/vss_formatter.h"
 
 std::atomic<bool> g_running(true);
 
