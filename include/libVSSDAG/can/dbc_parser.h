@@ -6,6 +6,7 @@
 #include <vector>
 #include <optional>
 #include <dbcppp/Network.h>
+#include "dbc_types.h"
 
 namespace can_to_vss {
 
@@ -19,7 +20,11 @@ public:
 
     bool parse();
     
-    std::vector<std::pair<std::string, double>> decode_message(uint32_t can_id, const uint8_t* data, size_t length) const;
+    // Decode message with type information preserved
+    std::unordered_map<std::string, DBCDecodedValue> decode_message(uint32_t can_id, const uint8_t* data, size_t length) const;
+    
+    // Decode message and return as vector of signal updates
+    std::vector<DBCSignalUpdate> decode_message_as_updates(uint32_t can_id, const uint8_t* data, size_t length) const;
     
     bool has_message(uint32_t can_id) const;
     std::vector<std::string> get_signal_names(uint32_t can_id) const;

@@ -80,20 +80,31 @@ void CANSignalSource::handle_can_frame(const can_to_vss::CANFrame& frame) {
     
     VLOG(3) << "Processing CAN frame ID: 0x" << std::hex << frame.id;
     
-    // Decode the frame
-    auto decoded_signals = dbc_parser_->decode_message(
+    // Decode the frame directly to signal updates
+    auto dbc_updates = dbc_parser_->decode_message_as_updates(
         frame.id, frame.data.data(), frame.data.size());
     
-    // Convert to SignalUpdate and enqueue
+    // Convert to SignalUpdate and enqueue (only the signals we care about)
     auto timestamp = std::chrono::steady_clock::now();
-    for (const auto& [dbc_signal_name, value] : decoded_signals) {
+    for (const auto& dbc_update : dbc_updates) {
         // Check if this DBC signal is one we need
-        auto it = dbc_to_signal_name_.find(dbc_signal_name);
+        auto it = dbc_to_signal_name_.find(dbc_update.dbc_signal_name);
         if (it != dbc_to_signal_name_.end()) {
             // Use our signal name (not the DBC name) in the update
-            SignalUpdate update{it->second, value, timestamp};
+            SignalUpdate update{it->second, dbc_update.value, timestamp};
             signal_queue_.enqueue(std::move(update));
-            VLOG(3) << "Enqueued signal: " << it->second << " (DBC: " << dbc_signal_name << ") = " << value;
+            
+            // Log with type info
+            std::visit([&](auto&& val) {
+                using T = std::decay_t<decltype(val)>;
+                if constexpr (std::is_same_v<T, int64_t>) {
+                    VLOG(3) << "Enqueued signal: " << it->second << " (DBC: " << dbc_update.dbc_signal_name << ") = " << val << " (int)";
+                } else if constexpr (std::is_same_v<T, double>) {
+                    VLOG(3) << "Enqueued signal: " << it->second << " (DBC: " << dbc_update.dbc_signal_name << ") = " << val << " (double)";
+                } else {
+                    VLOG(3) << "Enqueued signal: " << it->second << " (DBC: " << dbc_update.dbc_signal_name << ") = " << val << " (string)";
+                }
+            }, dbc_update.value);
         }
     }
 }

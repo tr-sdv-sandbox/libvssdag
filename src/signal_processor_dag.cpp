@@ -379,49 +379,168 @@ void SignalProcessorDAG::generate_transform_function(const SignalNode* node) {
     }
 }
 
-std::vector<VSSSignal> SignalProcessorDAG::process_can_signals(
-    const std::vector<std::pair<std::string, double>>& can_signals) {
+// process_can_signals method removed - functionality merged into process_signal_updates
+
+std::optional<VSSSignal> SignalProcessorDAG::process_node(SignalNode* node) {
+    // Set up context
+    setup_node_context(node);
     
-    std::vector<VSSSignal> vss_signals;
-    
-    // Update CAN signal values and mark nodes as updated
-    for (const auto& [signal_name, value] : can_signals) {
-        if (auto* node = dag_->get_node(signal_name)) {
-            if (node->is_input_signal) {
-                VLOG(2) << "Updating input signal " << signal_name << " = " << value;
-                // Store the raw value on the node (transform will be applied during processing)
-                node->last_value = value;
-                node->last_update = std::chrono::steady_clock::now();
-                
-                // Mark this node and its dependents as having new data
-                dag_->mark_can_signal_updated(signal_name);
-            }
+    // Get input value - now typed
+    std::variant<int64_t, double, std::string> input_value;
+    if (node->is_input_signal) {
+        // For input signals, use the stored typed value
+        auto it = signal_values_.find(node->signal_name);
+        if (it != signal_values_.end()) {
+            input_value = it->second;
         } else {
-            VLOG(3) << "Ignoring unknown CAN signal: " << signal_name;
+            // Default to 0.0 if not found
+            input_value = 0.0;
+        }
+    } else {
+        // For derived signals, input is ignored but we need a value
+        input_value = 0.0;
+    }
+    
+    // Convert to double for Lua (temporary until Lua mapper is updated)
+    double lua_input = std::visit([](auto&& val) -> double {
+        using T = std::decay_t<decltype(val)>;
+        if constexpr (std::is_same_v<T, int64_t>) {
+            return static_cast<double>(val);
+        } else if constexpr (std::is_same_v<T, double>) {
+            return val;
+        } else {
+            // String - try to convert, default to 0
+            try {
+                return std::stod(val);
+            } catch (...) {
+                return 0.0;
+            }
+        }
+    }, input_value);
+    
+    // Call transform function
+    lua_mapper_->set_can_signal_value(node->signal_name, lua_input);
+    auto result = lua_mapper_->call_transform_function(node->signal_name, lua_input);
+    
+    // Update provided value if transform succeeded
+    if (result.has_value()) {
+        // Get the provided value from Lua
+        auto provided_value = lua_mapper_->get_lua_variable("signal_values['" + node->signal_name + "']");
+        if (provided_value.has_value()) {
+            // Try to determine the type and store appropriately
+            try {
+                // Check if it's an integer
+                double d = std::stod(provided_value.value());
+                if (std::floor(d) == d && d >= std::numeric_limits<int64_t>::min() && d <= std::numeric_limits<int64_t>::max()) {
+                    signal_values_[node->signal_name] = static_cast<int64_t>(d);
+                } else {
+                    signal_values_[node->signal_name] = d;
+                }
+            } catch (...) {
+                // Store as string if conversion fails
+                signal_values_[node->signal_name] = provided_value.value();
+            }
         }
     }
     
-    // First pass: Mark nodes that need processing (data updates + periodic triggers)
+    return result;
+}
+
+void SignalProcessorDAG::setup_node_context(const SignalNode* node) {
+    lua_State* L = lua_mapper_->get_lua_state();
+    
+    // Set current signal context
+    lua_pushstring(L, node->signal_name.c_str());
+    lua_setglobal(L, "_current_signal");
+    
+    // Set current timestamp (seconds since epoch with microsecond precision)
+    auto now = std::chrono::steady_clock::now();
+    auto epoch = now.time_since_epoch();
+    auto seconds = std::chrono::duration_cast<std::chrono::duration<double>>(epoch).count();
+    lua_pushnumber(L, seconds);
+    lua_setglobal(L, "_current_time");
+    
+    // Create deps table
+    lua_newtable(L);
+    
+    for (const auto& dep : node->depends_on) {
+        auto it = signal_values_.find(dep);
+        if (it != signal_values_.end()) {
+            // Push key
+            lua_pushstring(L, dep.c_str());
+            // Push typed value
+            VSSTypeHelper::push_typed_value_to_lua(L, it->second);
+            // Set table
+            lua_settable(L, -3);
+        }
+        // If not found, the key simply won't exist in the table (nil)
+    }
+    
+    // Set the deps table as global
+    lua_setglobal(L, "deps");
+}
+
+std::vector<std::string> SignalProcessorDAG::get_required_input_signals() const {
+    std::vector<std::string> signals;
+    
+    for (const auto& node : dag_->get_nodes()) {
+        if (node->is_input_signal) {
+            signals.push_back(node->signal_name);
+        }
+    }
+    
+    return signals;
+}
+
+std::vector<VSSSignal> SignalProcessorDAG::process_signal_updates(
+    const std::vector<vssdag::SignalUpdate>& updates) {
+    
+    std::vector<VSSSignal> vss_signals;
+    
+    // Update signal values and mark nodes as updated
+    for (const auto& update : updates) {
+        if (auto* node = dag_->get_node(update.signal_name)) {
+            if (node->is_input_signal) {
+                // Log with type info
+                std::visit([&](auto&& val) {
+                    using T = std::decay_t<decltype(val)>;
+                    if constexpr (std::is_same_v<T, int64_t>) {
+                        VLOG(2) << "Updating input signal " << update.signal_name << " = " << val << " (int)";
+                    } else if constexpr (std::is_same_v<T, double>) {
+                        VLOG(2) << "Updating input signal " << update.signal_name << " = " << val << " (double)";
+                    } else {
+                        VLOG(2) << "Updating input signal " << update.signal_name << " = " << val << " (string)";
+                    }
+                }, update.value);
+                
+                // Store the typed value
+                signal_values_[update.signal_name] = update.value;
+                node->last_update = update.timestamp;
+                
+                // Mark this node and its dependents as having new data
+                dag_->mark_can_signal_updated(update.signal_name);
+            }
+        } else {
+            VLOG(3) << "Ignoring unknown signal: " << update.signal_name;
+        }
+    }
+    
+    // Process nodes (similar to process_can_signals but simplified)
     auto now = std::chrono::steady_clock::now();
     std::vector<SignalNode*> nodes_to_process;
-    
-    VLOG(3) << "Checking " << dag_->get_processing_order().size() << " nodes for processing";
     
     for (auto* node : dag_->get_processing_order()) {
         bool needs_processing = false;
         
-        // Check if node has new data from dependencies
         if (node->has_new_data) {
             needs_processing = true;
-            VLOG(3) << "Node " << node->signal_name << " has new data";
         }
         
-        // Check if node needs periodic processing
+        // Check periodic updates
         if (node->mapping.update_trigger == UpdateTrigger::PERIODIC || 
             node->mapping.update_trigger == UpdateTrigger::BOTH) {
             
             if (node->mapping.interval_ms > 0) {
-                // Check if all dependencies have values before allowing periodic processing
                 bool deps_available = true;
                 for (const auto& dep : node->depends_on) {
                     if (signal_values_.find(dep) == signal_values_.end()) {
@@ -431,7 +550,6 @@ std::vector<VSSSignal> SignalProcessorDAG::process_can_signals(
                 }
                 
                 if (deps_available) {
-                    // Handle first time - if last_process is min, always process
                     if (node->last_process == std::chrono::steady_clock::time_point::min()) {
                         needs_processing = true;
                         node->needs_periodic_update = true;
@@ -449,39 +567,28 @@ std::vector<VSSSignal> SignalProcessorDAG::process_can_signals(
         }
         
         if (needs_processing) {
-            VLOG(3) << "Node " << node->signal_name << " needs processing"
-                    << " (has_new_data=" << node->has_new_data 
-                    << ", periodic=" << node->needs_periodic_update << ")";
             nodes_to_process.push_back(node);
-            // Mark dependents as potentially needing update
             for (auto* dependent : node->dependents) {
                 dependent->has_new_data = true;
             }
         }
     }
     
-    // Second pass: Process all marked nodes in topological order
-    VLOG(2) << "Processing " << nodes_to_process.size() << " nodes";
+    // Process nodes
     for (auto* node : dag_->get_processing_order()) {
         if (std::find(nodes_to_process.begin(), nodes_to_process.end(), node) != nodes_to_process.end() ||
             node->has_new_data) {
             
-            VLOG(3) << "Processing node: " << node->signal_name;
             auto result = process_node(node);
             
-            // Update last process time if this was a periodic update
             if (node->needs_periodic_update) {
                 node->last_process = now;
                 node->needs_periodic_update = false;
             }
             
             if (result.has_value()) {
-                VLOG(2) << "Node " << node->signal_name << " produced result: " 
-                        << result.value().value;
-                // Check interval throttling for output
                 bool should_output = false;
                 
-                // Handle first output - if last_output is min, always output
                 if (node->last_output == std::chrono::steady_clock::time_point::min()) {
                     should_output = true;
                 } else {
@@ -493,28 +600,14 @@ std::vector<VSSSignal> SignalProcessorDAG::process_can_signals(
                             should_output = true;
                         }
                     } else {
-                        // No interval specified, always output
                         should_output = true;
                     }
                 }
                 
                 if (should_output) {
                     vss_signals.push_back(result.value());
-                    
-                    if (node->last_output == std::chrono::steady_clock::time_point::min()) {
-                        VLOG(2) << "Output signal " << node->signal_name << " (first output)";
-                    } else {
-                        auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                            now - node->last_output).count();
-                        VLOG(2) << "Output signal " << node->signal_name << " after " << elapsed_ms << "ms";
-                    }
-                    
                     node->last_output = now;
                     node->last_output_value = result.value().value;
-                } else {
-                    auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                        now - node->last_output).count();
-                    VLOG(2) << "Throttled signal " << node->signal_name << " (" << elapsed_ms << "ms < " << node->mapping.interval_ms << "ms)";
                 }
             }
             node->has_new_data = false;
@@ -522,91 +615,6 @@ std::vector<VSSSignal> SignalProcessorDAG::process_can_signals(
     }
     
     return vss_signals;
-}
-
-std::optional<VSSSignal> SignalProcessorDAG::process_node(SignalNode* node) {
-    // Set up context
-    setup_node_context(node);
-    
-    // Get input value
-    double input_value = 0.0;
-    if (node->is_input_signal) {
-        // For CAN signals, use the last value
-        input_value = node->last_value;
-    }
-    // For derived signals, input_value is ignored
-    
-    // Call transform function
-    lua_mapper_->set_can_signal_value(node->signal_name, input_value);
-    auto result = lua_mapper_->call_transform_function(node->signal_name, input_value);
-    
-    // Update provided value if transform succeeded
-    if (result.has_value()) {
-        // Get the provided value from Lua
-        auto provided_value = lua_mapper_->get_lua_variable("signal_values['" + node->signal_name + "']");
-        if (provided_value.has_value()) {
-            try {
-                signal_values_[node->signal_name] = std::stod(provided_value.value());
-            } catch (...) {
-                // Value might be a string, store as 0 for now
-                signal_values_[node->signal_name] = 0.0;
-            }
-        }
-    }
-    
-    return result;
-}
-
-void SignalProcessorDAG::setup_node_context(const SignalNode* node) {
-    // Set current signal context
-    std::stringstream context;
-    context << "_current_signal = '" << node->signal_name << "'\n";
-    
-    // Set current timestamp (seconds since epoch with microsecond precision)
-    auto now = std::chrono::steady_clock::now();
-    auto epoch = now.time_since_epoch();
-    auto seconds = std::chrono::duration_cast<std::chrono::duration<double>>(epoch).count();
-    context << "_current_time = " << std::fixed << std::setprecision(6) << seconds << "\n";
-    
-    // Clear and set dependencies
-    context << "deps = {}\n";
-    
-    for (const auto& dep : node->depends_on) {
-        auto it = signal_values_.find(dep);
-        if (it != signal_values_.end()) {
-            context << "deps['" << dep << "'] = " << it->second << "\n";
-        } else {
-            // Explicitly set nil for missing dependencies
-            context << "deps['" << dep << "'] = nil\n";
-        }
-    }
-    
-    lua_mapper_->execute_lua_string(context.str());
-}
-
-std::vector<std::string> SignalProcessorDAG::get_required_input_signals() const {
-    std::vector<std::string> signals;
-    
-    for (const auto& node : dag_->get_nodes()) {
-        if (node->is_input_signal) {
-            signals.push_back(node->signal_name);
-        }
-    }
-    
-    return signals;
-}
-
-std::vector<VSSSignal> SignalProcessorDAG::process_signal_updates(
-    const std::vector<vssdag::SignalUpdate>& updates) {
-    // Convert SignalUpdate format to the existing format
-    std::vector<std::pair<std::string, double>> signal_pairs;
-    signal_pairs.reserve(updates.size());
-    
-    for (const auto& update : updates) {
-        signal_pairs.emplace_back(update.signal_name, update.value);
-    }
-    
-    return process_can_signals(signal_pairs);
 }
 
 } // namespace can_to_vss
