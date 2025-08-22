@@ -88,7 +88,8 @@ void CANSignalSource::handle_can_frame(const can_to_vss::CANFrame& frame) {
     auto timestamp = std::chrono::steady_clock::now();
     for (const auto& dbc_update : dbc_updates) {
         // Check if this DBC signal is one we need
-        auto it = dbc_to_signal_name_.find(dbc_update.dbc_signal_name);
+        // Note: In C++17 we need to construct a string for the lookup
+        auto it = dbc_to_signal_name_.find(std::string(dbc_update.dbc_signal_name));
         if (it != dbc_to_signal_name_.end()) {
             // Use our signal name (not the DBC name) in the update
             SignalUpdate update{it->second, dbc_update.value, timestamp};
