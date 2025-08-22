@@ -113,7 +113,7 @@ std::vector<DBCSignalUpdate> DBCParser::decode_message_as_updates(uint32_t can_i
                     double physical_value = sig.RawToPhys(raw_value);
                     
                     DBCSignalUpdate update;
-                    update.dbc_signal_name = sig.Name();
+                    update.dbc_signal_name = std::string_view(sig.Name());
                     
                     // Check if this signal has enum mappings
                     update.has_enums = (signal_enums_.find(sig.Name()) != signal_enums_.end());

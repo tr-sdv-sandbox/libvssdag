@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <string_view>
 #include <variant>
 #include <cstdint>
 
@@ -84,7 +85,7 @@ struct DBCDecodedValue {
 
 // Raw signal update from DBC decoding (before name mapping)
 struct DBCSignalUpdate {
-    std::string dbc_signal_name;  // Original DBC signal name
+    std::string_view dbc_signal_name;  // Reference to DBC signal name (no allocation)
     std::variant<int64_t, double, std::string> value;
     bool has_enums = false;
 };
