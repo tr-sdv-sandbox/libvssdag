@@ -1,0 +1,13 @@
+@PACKAGE_INIT@
+
+include("${CMAKE_CURRENT_LIST_DIR}/vssdagTargets.cmake")
+
+check_required_components(vssdag)
+
+# Find dependencies
+include(CMakeFindDependencyMacro)
+find_dependency(Threads)
+find_dependency(glog)
+find_dependency(Lua)
+find_dependency(yaml-cpp)
+find_dependency(nlohmann_json)

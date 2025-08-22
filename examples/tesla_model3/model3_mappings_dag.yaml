@@ -1,0 +1,529 @@
+# Model 3 CAN to VSS Signal Mappings with DAG dependencies
+# Demonstrates multi-signal dependencies and derived signals
+
+mappings:
+  # Base CAN signals (no dependencies)
+  - signal: Vehicle.Speed
+    source:
+      type: dbc
+      name: DI_vehicleSpeed
+    datatype: float
+    interval_ms: 50
+    transform:
+      code: "lowpass(x, 0.3)"  # Negative values indicate reverse
+
+  - signal: Vehicle.Chassis.Brake.IsPressed
+    source:
+      type: dbc
+      name: DI_brakePedalState
+    datatype: boolean
+    interval_ms: 50
+    transform:
+      mapping:
+        - { from: "0", to: false }
+        - { from: "1", to: true }
+
+  - signal: Vehicle.Chassis.Accelerator.Position
+    source:
+      type: dbc
+      name: DI_accelPedalPos
+    datatype: float
+    interval_ms: 50
+    transform:
+      code: "x"
+
+  - signal: Vehicle.ADAS.ABS.IsActive
+    source:
+      type: dbc
+      name: ESP_absBrakeEvent
+    datatype: boolean
+    interval_ms: 100
+    transform:
+      mapping:
+        - { from: "0", to: false }  # ABS_EVENT_NOT_ACTIVE
+        - { from: "1", to: true }   # ABS_EVENT_ACTIVE_FRONT_REAR
+        - { from: "2", to: true }   # ABS_EVENT_ACTIVE_FRONT
+        - { from: "3", to: true }   # ABS_EVENT_ACTIVE_REAR
+
+  - signal: Vehicle.Chassis.SteeringWheel.Angle
+    source:
+      type: dbc
+      name: SteeringAngle129
+    datatype: float
+    interval_ms: 50
+    transform:
+      code: "moving_avg(x, 5)"
+
+  - signal: Vehicle.Powertrain.Transmission.CurrentGear
+    source:
+      type: dbc
+      name: DI_gear
+    datatype: string
+    interval_ms: 200
+    transform:
+      mapping:
+        - { from: "DI_GEAR_INVALID", to: "X" }
+        - { from: "DI_GEAR_P", to: "P" }
+        - { from: "DI_GEAR_R", to: "R" }
+        - { from: "DI_GEAR_N", to: "N" }
+        - { from: "DI_GEAR_D", to: "D" }
+        - { from: "5", to: "X" }
+        - { from: "6", to: "X" }
+        - { from: "DI_GEAR_SNA", to: "X" }
+
+  # First-level derived signals
+  - signal: Vehicle.Acceleration.Longitudinal
+    datatype: float
+    interval_ms: 500
+    update_trigger: both  # Process on speed change OR periodically
+    depends_on: [Vehicle.Speed]
+    transform:
+      code: |
+        local accel = derivative(deps['Vehicle.Speed']) * 0.277778  -- km/h/s to m/s²
+        -- Clean up noise and apply reasonable limits
+        if math.abs(accel) < 0.01 then  -- Reduced threshold for debugging
+          accel = 0
+        elseif accel > 50 then  -- Limit to reasonable max acceleration
+          accel = 50
+        elseif accel < -50 then  -- Limit to reasonable max deceleration
+          accel = -50
+        end
+        -- Always return a value, even if 0
+        return accel or 0
+
+  # Multi-dependency signals
+  - signal: Telemetry.HarshBraking
+    # Internal calculation only - not exposed as VSS
+    datatype: boolean
+    interval_ms: 100
+    depends_on: [Vehicle.Acceleration.Longitudinal, Vehicle.Chassis.Brake.IsPressed, Vehicle.Speed]
+    transform:
+      code: |
+        if not deps['Vehicle.Acceleration.Longitudinal'] then return nil end
+        -- Calculate deceleration based on direction
+        local decel_mps2
+        if deps['Vehicle.Speed'] >= 0 then
+          decel_mps2 = math.max(0, -deps['Vehicle.Acceleration.Longitudinal'])
+        else
+          decel_mps2 = math.max(0, deps['Vehicle.Acceleration.Longitudinal'])
+        end
+        local harsh = decel_mps2 > 19.6 and deps['Vehicle.Chassis.Brake.IsPressed']
+        return sustained_condition(harsh, 200)  -- Must be true for 200ms
+
+  - signal: Telemetry.EmergencyStop
+    # Internal calculation only - not exposed as VSS
+    datatype: boolean
+    interval_ms: 100
+    depends_on: [Telemetry.HarshBraking, Vehicle.ADAS.ABS.IsActive]
+    transform:
+      code: |
+        if deps['Telemetry.HarshBraking'] == nil or deps['Vehicle.ADAS.ABS.IsActive'] == nil then
+          return nil
+        end
+        return deps['Telemetry.HarshBraking'] and deps['Vehicle.ADAS.ABS.IsActive']
+
+  - signal: Telemetry.PanicStop
+    # Internal calculation only - not exposed as VSS
+    datatype: boolean
+    interval_ms: 50
+    depends_on: [Vehicle.Chassis.Accelerator.Position, Vehicle.Chassis.Brake.IsPressed, Vehicle.Speed]
+    transform:
+      code: |
+        local state = get_state()
+        
+        -- Detect rapid pedal swap
+        if deps['Vehicle.Chassis.Accelerator.Position'] > 50 and not deps['Vehicle.Chassis.Brake.IsPressed'] then
+          state.throttle_time = os.clock()
+        end
+        
+        local panic = deps['Vehicle.Chassis.Brake.IsPressed'] and 
+                     state.throttle_time and
+                     (os.clock() - state.throttle_time) < 0.3 and
+                     deps['Vehicle.Speed'] > 50
+        
+        return panic
+
+  # Steering analysis
+  - signal: Vehicle.Chassis.SteeringWheel.AngularVelocity
+    datatype: float
+    interval_ms: 50
+    depends_on: [Vehicle.Chassis.SteeringWheel.Angle]
+    transform:
+      code: "derivative(deps['Vehicle.Chassis.SteeringWheel.Angle'])"
+
+  - signal: Telemetry.AggressiveSteering
+    # Internal calculation only - not exposed as VSS
+    datatype: boolean
+    interval_ms: 100
+    depends_on: [Vehicle.Chassis.SteeringWheel.AngularVelocity, Vehicle.Speed, Vehicle.Chassis.SteeringWheel.Angle]
+    transform:
+      code: |
+        if not deps['Vehicle.Chassis.SteeringWheel.AngularVelocity'] or not deps['Vehicle.Chassis.SteeringWheel.Angle'] then
+          return nil  -- No data available yet
+        end
+        local aggressive = math.abs(deps['Vehicle.Chassis.SteeringWheel.AngularVelocity']) > 200 and
+                          deps['Vehicle.Speed'] > 60 and
+                          math.abs(deps['Vehicle.Chassis.SteeringWheel.Angle']) > 30
+        return sustained_condition(aggressive, 100)
+
+  # Driver behavior scoring
+  - signal: Telemetry.EcoScore
+    # Internal calculation only - not exposed as VSS
+    datatype: float
+    interval_ms: 1000
+    depends_on: [Vehicle.Speed, Vehicle.Chassis.Accelerator.Position, Vehicle.Acceleration.Longitudinal]
+    transform:
+      code: |
+        local score = 100
+        
+        -- Penalize hard acceleration
+        if deps['Vehicle.Acceleration.Longitudinal'] and deps['Vehicle.Acceleration.Longitudinal'] > 2 then
+          score = score - (deps['Vehicle.Acceleration.Longitudinal'] - 2) * 10
+        end
+        
+        -- Reward moderate speeds
+        if deps['Vehicle.Speed'] > 20 and deps['Vehicle.Speed'] < 90 then
+          score = score + 10
+        elseif deps['Vehicle.Speed'] > 120 then
+          score = score - 20
+        end
+        
+        -- Penalize heavy throttle
+        if deps['Vehicle.Chassis.Accelerator.Position'] > 60 then
+          score = score - (deps['Vehicle.Chassis.Accelerator.Position'] - 60) * 0.5
+        end
+        
+        return clamp(lowpass(score, 0.1), 0, 100)
+
+  - signal: Telemetry.SafetyScore
+    # Internal calculation only - not exposed as VSS
+    datatype: float
+    interval_ms: 1000
+    depends_on: [Telemetry.HarshBraking, Telemetry.AggressiveSteering, Vehicle.Speed, Telemetry.EmergencyStop]
+    transform:
+      code: |
+        local state = get_state()
+        state.score = state.score or 100
+        
+        -- Decay penalties over time
+        state.score = math.min(100, state.score + 0.1)
+        
+        -- Apply penalties
+        if deps['Telemetry.HarshBraking'] then
+          state.score = state.score - 10
+        end
+        
+        if deps['Telemetry.AggressiveSteering'] then
+          state.score = state.score - 5
+        end
+        
+        if deps['Telemetry.EmergencyStop'] then
+          state.score = state.score - 20
+        end
+        
+        -- Speed penalty
+        if deps['Vehicle.Speed'] and deps['Vehicle.Speed'] > 130 then
+          state.score = state.score - 0.1 * (deps['Vehicle.Speed'] - 130)
+        end
+        
+        return clamp(state.score, 0, 100)
+
+  # Energy efficiency analysis
+  - signal: Vehicle.Powertrain.ElectricMotor.IsRegenerating
+    datatype: boolean
+    interval_ms: 100
+    depends_on: [Vehicle.Acceleration.Longitudinal, Vehicle.Chassis.Brake.IsPressed, Vehicle.Powertrain.Transmission.CurrentGear, Vehicle.Speed]
+    transform:
+      code: |
+        -- Regeneration active when decelerating without brake in D
+        if not deps['Vehicle.Acceleration.Longitudinal'] or not deps['Vehicle.Powertrain.Transmission.CurrentGear'] or not deps['Vehicle.Speed'] then
+          return nil
+        end
+        -- Calculate deceleration based on direction
+        local decel_mps2
+        if deps['Vehicle.Speed'] >= 0 then
+          decel_mps2 = math.max(0, -deps['Vehicle.Acceleration.Longitudinal'])
+        else
+          decel_mps2 = math.max(0, deps['Vehicle.Acceleration.Longitudinal'])
+        end
+        return decel_mps2 > 2 and 
+               not deps['Vehicle.Chassis.Brake.IsPressed'] and 
+               deps['Vehicle.Powertrain.Transmission.CurrentGear'] == "D"
+
+  # Traffic analysis
+  - signal: Analytics.TrafficCongestion
+    # Internal calculation only - not exposed as VSS
+    datatype: string
+    interval_ms: 5000
+    depends_on: [Vehicle.Speed]
+    transform:
+      code: |
+        local avg_speed = moving_avg(deps['Vehicle.Speed'], 100)
+        local state = get_state()
+        
+        -- Calculate speed variance
+        state.speeds = state.speeds or {}
+        table.insert(state.speeds, deps['Vehicle.Speed'])
+        if #state.speeds > 100 then
+          table.remove(state.speeds, 1)
+        end
+        
+        local sum = 0
+        for _, v in ipairs(state.speeds) do
+          sum = sum + (v - avg_speed)^2
+        end
+        local variance = sum / #state.speeds
+        
+        if avg_speed < 10 and variance > 25 then
+          return "stop_and_go"
+        elseif avg_speed < 30 then
+          return "heavy"
+        elseif avg_speed < 50 and variance > 100 then
+          return "moderate"
+        elseif avg_speed < 80 then
+          return "light"
+        else
+          return "free_flow"
+        end
+
+  # Turn Signals
+  - signal: Vehicle.Body.Lights.DirectionIndicator.Right.IsSignaling
+    source:
+      type: dbc
+      name: VCRIGHT_turnSignalStatus
+    datatype: boolean
+    interval_ms: 100
+    transform:
+      mapping:
+        - { from: "0", to: false }
+        - { from: "1", to: true }   # Signaling
+        - { from: "2", to: true }   # Signaling (different state)
+        - { from: "3", to: false }  # Fault/unknown
+
+  - signal: Vehicle.Body.Lights.DirectionIndicator.Left.IsSignaling
+    source:
+      type: dbc
+      name: VCLEFT_turnSignalStatus
+    datatype: boolean
+    interval_ms: 100
+    transform:
+      mapping:
+        - { from: "0", to: false }
+        - { from: "1", to: true }   # Signaling
+        - { from: "2", to: true }   # Signaling (different state)
+        - { from: "3", to: false }  # Fault/unknown
+
+  # Reverse Light
+  - signal: Vehicle.Body.Lights.Backup.IsOn
+    source:
+      type: dbc
+      name: VCRIGHT_reverseLightStatus
+    datatype: boolean
+    interval_ms: 100
+    transform:
+      mapping:
+        - { from: "LIGHT_OFF", to: false }
+        - { from: "LIGHT_ON", to: true }
+        - { from: "LIGHT_FAULT", to: false }
+        - { from: "LIGHT_SNA", to: false }
+
+  # Battery Information
+  - signal: Vehicle.Powertrain.Battery.StateOfCharge.Current
+    source:
+      type: dbc
+      name: SOCUI292
+    datatype: float
+    interval_ms: 1000
+    transform:
+      code: "x"
+
+  - signal: Vehicle.Powertrain.Battery.Voltage
+    source:
+      type: dbc
+      name: BattVoltage132
+    datatype: float
+    interval_ms: 1000
+    transform:
+      code: "x"
+
+  - signal: Vehicle.Powertrain.Battery.Current
+    source:
+      type: dbc
+      name: SmoothBattCurrent132
+    datatype: float
+    interval_ms: 1000
+    transform:
+      code: "x"
+
+  # Motor Information
+  - signal: Vehicle.Powertrain.ElectricMotor.Torque
+    source:
+      type: dbc
+      name: DI_torqueActual
+    datatype: float
+    interval_ms: 100
+    transform:
+      code: "x"
+
+  - signal: Vehicle.Powertrain.ElectricMotor.Speed
+    source:
+      type: dbc
+      name: DI_motorRPM
+    datatype: float
+    interval_ms: 100
+    transform:
+      code: "x"
+
+  # Doors
+  - signal: Vehicle.Cabin.Door.Row1.DriverSide.IsOpen
+    source:
+      type: dbc
+      name: VCLEFT_frontDoorState
+    datatype: boolean
+    interval_ms: 500
+    transform:
+      mapping:
+        - { from: "DOOR_STATE_CLOSED", to: false }
+        - { from: "DOOR_STATE_OPEN", to: true }
+        - { from: "DOOR_STATE_AJAR", to: true }
+        - { from: "DOOR_STATE_DEFAULT", to: false }
+
+  - signal: Vehicle.Cabin.Door.Row2.DriverSide.IsOpen
+    source:
+      type: dbc
+      name: VCLEFT_rearDoorState
+    datatype: boolean
+    interval_ms: 500
+    transform:
+      mapping:
+        - { from: "DOOR_STATE_CLOSED", to: false }
+        - { from: "DOOR_STATE_OPEN", to: true }
+        - { from: "DOOR_STATE_AJAR", to: true }
+        - { from: "DOOR_STATE_DEFAULT", to: false }
+
+  # Trunk
+  - signal: Vehicle.Body.Trunk.Rear.IsOpen
+    source:
+      type: dbc
+      name: VCRIGHT_trunkLatchStatus
+    datatype: boolean
+    interval_ms: 500
+    transform:
+      mapping:
+        - { from: "LATCH_LOCKED", to: false }
+        - { from: "LATCH_UNLOCKED", to: false }
+        - { from: "LATCH_AJAR", to: true }
+        - { from: "LATCH_OPEN", to: true }
+        - { from: "LATCH_CLOSING", to: true }
+        - { from: "LATCH_DEFAULT", to: false }
+
+  # HVAC
+  - signal: Vehicle.Cabin.HVAC.Station.Row1.Driver.Temperature
+    source:
+      type: dbc
+      name: HVAC_targetTempLeft
+    datatype: float
+    interval_ms: 1000
+    transform:
+      code: "x"
+
+  - signal: Vehicle.Cabin.HVAC.Station.Row1.Passenger.Temperature
+    source:
+      type: dbc
+      name: HVAC_targetTempRight
+    datatype: float
+    interval_ms: 1000
+    transform:
+      code: "x"
+
+  # Additional derived signals using the new base signals
+  - signal: Vehicle.Powertrain.Battery.Power
+    datatype: float
+    interval_ms: 1000
+    depends_on: [Vehicle.Powertrain.Battery.Voltage, Vehicle.Powertrain.Battery.Current]
+    transform:
+      code: |
+        if not deps['Vehicle.Powertrain.Battery.Voltage'] or not deps['Vehicle.Powertrain.Battery.Current'] then
+          return nil
+        end
+        return deps['Vehicle.Powertrain.Battery.Voltage'] * deps['Vehicle.Powertrain.Battery.Current'] / 1000  -- Convert to kW
+
+  - signal: Vehicle.Powertrain.ElectricMotor.Power
+    datatype: float
+    interval_ms: 100
+    depends_on: [Vehicle.Powertrain.ElectricMotor.Torque, Vehicle.Powertrain.ElectricMotor.Speed]
+    transform:
+      code: |
+        if not deps['Vehicle.Powertrain.ElectricMotor.Torque'] or not deps['Vehicle.Powertrain.ElectricMotor.Speed'] then
+          return nil
+        end
+        return deps['Vehicle.Powertrain.ElectricMotor.Torque'] * deps['Vehicle.Powertrain.ElectricMotor.Speed'] * 0.10472 / 1000  -- Torque * RPM * (2π/60) / 1000
+
+  - signal: Vehicle.Powertrain.Efficiency
+    datatype: float
+    interval_ms: 1000
+    depends_on: [Vehicle.Powertrain.ElectricMotor.Power, Vehicle.Powertrain.Battery.Power]
+    transform:
+      code: |
+        -- Only calculate if we have both power values
+        if not deps['Vehicle.Powertrain.ElectricMotor.Power'] or not deps['Vehicle.Powertrain.Battery.Power'] then
+          return nil
+        end
+        
+        local efficiency = 0
+        if deps['Vehicle.Powertrain.Battery.Power'] > 0.1 then
+          efficiency = (deps['Vehicle.Powertrain.ElectricMotor.Power'] / deps['Vehicle.Powertrain.Battery.Power']) * 100
+          efficiency = clamp(efficiency, 0, 100)
+        end
+        return efficiency
+
+  - signal: Vehicle.Powertrain.EnergyConsumption
+    datatype: float
+    interval_ms: 1000
+    depends_on: [Vehicle.Powertrain.Battery.Power, Vehicle.Speed]
+    transform:
+      code: |
+        -- Only calculate if we have battery power data
+        if not deps['Vehicle.Powertrain.Battery.Power'] then
+          return nil
+        end
+        
+        local consumption = 0
+        if deps['Vehicle.Speed'] and deps['Vehicle.Speed'] > 1 then
+          consumption = (deps['Vehicle.Powertrain.Battery.Power'] * 1000) / deps['Vehicle.Speed']
+          consumption = moving_avg(consumption, 10)
+        end
+        return consumption
+
+  # ========== VSS 4.0 STRUCT SUPPORT ==========
+  # Structs are derived signals that depend on multiple values
+  # This maintains consistency with the DAG approach
+  
+  # Vehicle Dynamics Struct - Speed and Acceleration combined atomically
+  - signal: Vehicle.DynamicsStruct
+    datatype: struct
+    struct_type: Types.VehicleDynamics
+    interval_ms: 100
+    depends_on: [Vehicle.Speed, Vehicle.Acceleration.Longitudinal]
+    transform:
+      code: |
+        -- Create struct with both speed and acceleration
+        return {
+          Speed = deps['Vehicle.Speed'] or 0,
+          LongitudinalAcceleration = deps['Vehicle.Acceleration.Longitudinal'] or 0
+        }
+        
+  # Pedal Positions Struct - Brake and Accelerator combined atomically
+  - signal: Vehicle.Chassis.PedalsStruct
+    datatype: struct
+    struct_type: Types.PedalPositions
+    interval_ms: 50
+    depends_on: [Vehicle.Chassis.Brake.IsPressed, Vehicle.Chassis.Accelerator.Position]
+    transform:
+      code: |
+        -- Create struct with both pedal positions
+        return {
+          BrakePressed = deps['Vehicle.Chassis.Brake.IsPressed'] or false,
+          AcceleratorPosition = deps['Vehicle.Chassis.Accelerator.Position'] or 0
+        }
+

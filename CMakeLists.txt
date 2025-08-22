@@ -1,8 +1,14 @@
 cmake_minimum_required(VERSION 3.14)
-project(libVSSDAG VERSION 1.0.0 LANGUAGES CXX)
+project(vssdag VERSION 1.0.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# Build options
+option(BUILD_EXAMPLES "Build example applications" ON)
+option(BUILD_TESTS "Build unit tests" ON)
+option(BUILD_SHARED_LIBS "Build shared libraries" OFF)
+option(BUILD_INTEGRATION_TESTS "Build integration tests" ON)
 
 # Find required packages
 find_package(Threads REQUIRED)
@@ -50,6 +56,13 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(moodycamel)
 
+# Find Google Test if tests are enabled
+if(BUILD_TESTS OR BUILD_INTEGRATION_TESTS)
+    find_package(GTest REQUIRED)
+    enable_testing()
+    include(GoogleTest)
+endif()
+
 # Find dbcppp (DBC parser library)
 find_package(dbcppp QUIET)
 if(NOT dbcppp_FOUND)
@@ -63,28 +76,37 @@ if(NOT dbcppp_FOUND)
     FetchContent_MakeAvailable(dbcppp)
 endif()
 
-# Add include directories
-include_directories(
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${LUA_INCLUDE_DIR}
-    ${moodycamel_SOURCE_DIR}
+# Create library with all the core functionality
+if(BUILD_SHARED_LIBS)
+    add_library(vssdag SHARED)
+else()
+    add_library(vssdag STATIC)
+endif()
+
+target_sources(vssdag
+    PRIVATE
+        src/can/dbc_parser.cpp
+        src/can/can_reader.cpp
+        src/can/can_source.cpp
+        src/lua_mapper.cpp
+        src/vss_formatter.cpp
+        src/signal_dag.cpp
+        src/signal_processor.cpp
+        src/vss_struct_mapper.cpp
+        src/vss_types.cpp
 )
 
-# Create static library with all the core functionality
-add_library(VSSDAG STATIC
-    src/can/dbc_parser.cpp
-    src/can/can_reader.cpp
-    src/can/can_signal_source.cpp
-    src/lua_mapper.cpp
-    src/vss_formatter.cpp
-    src/signal_dag.cpp
-    src/signal_processor_dag.cpp
-    src/vss_struct_mapper.cpp
-    src/vss_types.cpp
+# Set include directories for the library
+target_include_directories(vssdag
+    PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>
+        ${LUA_INCLUDE_DIR}
+        ${moodycamel_SOURCE_DIR}
 )
 
 # Link library dependencies
-target_link_libraries(VSSDAG
+target_link_libraries(vssdag
     PUBLIC
         glog::glog
         ${LUA_LIBRARIES}
@@ -94,23 +116,58 @@ target_link_libraries(VSSDAG
         Threads::Threads
 )
 
-# Set include directories for the library
-target_include_directories(VSSDAG
-    PUBLIC
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
-        ${LUA_INCLUDE_DIR}
+# Add subdirectories
+if(BUILD_EXAMPLES)
+    add_subdirectory(examples)
+endif()
+
+if(BUILD_TESTS)
+    enable_testing()
+    add_subdirectory(tests)
+endif()
+
+# Installation
+include(GNUInstallDirs)
+
+# Install library
+install(TARGETS vssdag
+    EXPORT vssdag-targets
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
 
-# Add programs subdirectory
-add_subdirectory(programs)
-
-# Install target
-install(TARGETS VSSDAG
-    RUNTIME DESTINATION bin
+# Install headers
+install(DIRECTORY include/vssdag
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
 )
 
-## Install configuration files
-#install(DIRECTORY config/
-#    DESTINATION etc/can-to-vss
-#)
+# Install CMake config files
+# TODO: Fix export to handle fetched dependencies properly
+# install(EXPORT vssdag-targets
+#     FILE vssdagTargets.cmake
+#     NAMESPACE vssdag::
+#     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/vssdag
+# )
+
+# For now, comment out the export/install until dependencies are properly handled
+# # Create and install package config file
+# include(CMakePackageConfigHelpers)
+# configure_package_config_file(
+#     ${CMAKE_CURRENT_SOURCE_DIR}/cmake/vssdagConfig.cmake.in
+#     ${CMAKE_CURRENT_BINARY_DIR}/vssdagConfig.cmake
+#     INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/vssdag
+# )
+
+# write_basic_package_version_file(
+#     ${CMAKE_CURRENT_BINARY_DIR}/vssdagConfigVersion.cmake
+#     VERSION ${PROJECT_VERSION}
+#     COMPATIBILITY SameMajorVersion
+# )
+
+# install(FILES
+#     ${CMAKE_CURRENT_BINARY_DIR}/vssdagConfig.cmake
+#     ${CMAKE_CURRENT_BINARY_DIR}/vssdagConfigVersion.cmake
+#     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/vssdag
+# )
 

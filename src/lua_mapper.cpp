@@ -1,9 +1,9 @@
-#include "libVSSDAG/lua_mapper.h"
+#include "vssdag/lua_mapper.h"
 #include <glog/logging.h>
 #include <sstream>
 #include <optional>
 
-namespace can_to_vss {
+namespace vssdag {
 
 LuaMapper::LuaMapper() {
     L_ = luaL_newstate();
@@ -174,6 +174,24 @@ VSSSignal LuaMapper::extract_vss_signal(int index) {
             // Unknown table type, use JSON representation
             signal.value = "{}";  // Placeholder for now
         }
+    } else if (lua_type(L_, -1) == LUA_TNIL) {
+        // For nil values, indicate no data available
+        signal.value = "N/A";
+    }
+    lua_pop(L_, 1);
+    
+    // Get status
+    lua_getfield(L_, index, "status");
+    if (lua_isinteger(L_, -1)) {
+        int status_val = lua_tointeger(L_, -1);
+        signal.status = static_cast<SignalStatus>(status_val);
+    } else if (lua_isnumber(L_, -1)) {
+        // Handle as number if not specifically integer
+        int status_val = static_cast<int>(lua_tonumber(L_, -1));
+        signal.status = static_cast<SignalStatus>(status_val);
+    } else {
+        // Default to valid if no status field or wrong type
+        signal.status = SignalStatus::Valid;
     }
     lua_pop(L_, 1);
     
@@ -287,6 +305,21 @@ std::optional<VSSSignal> LuaMapper::extract_vss_signal_from_stack() {
     }
     lua_pop(L_, 1);
     
+    // Get status
+    lua_getfield(L_, -1, "status");
+    if (lua_isinteger(L_, -1)) {
+        int status_val = lua_tointeger(L_, -1);
+        signal.status = static_cast<SignalStatus>(status_val);
+    } else if (lua_isnumber(L_, -1)) {
+        // Handle as number if not specifically integer
+        int status_val = static_cast<int>(lua_tonumber(L_, -1));
+        signal.status = static_cast<SignalStatus>(status_val);
+    } else {
+        // Default to valid if no status field or wrong type
+        signal.status = SignalStatus::Valid;
+    }
+    lua_pop(L_, 1);
+    
     return signal;
 }
 
@@ -319,4 +352,4 @@ std::optional<std::string> LuaMapper::get_lua_variable(const std::string& var_na
     return result;
 }
 
-} // namespace can_to_vss
+} // namespace vssdag

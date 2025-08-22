@@ -1,11 +1,11 @@
-#include "libVSSDAG/can/dbc_parser.h"
+#include "vssdag/can/dbc_parser.h"
 #include <dbcppp/Network.h>
 #include <glog/logging.h>
 #include <fstream>
 #include <cmath>
 #include <limits>
 
-namespace can_to_vss {
+namespace vssdag {
 
 DBCParser::DBCParser(const std::string& dbc_file)
     : dbc_file_(dbc_file) {
@@ -25,24 +25,52 @@ bool DBCParser::parse() {
             return false;
         }
         
-        // Extract value descriptions (enums) for all signals
-        signal_enums_.clear();
+        // Extract signal information and pre-calculate invalid/NA patterns
+        signal_info_.clear();
         for (const auto& msg : network_->Messages()) {
             for (const auto& sig : msg.Signals()) {
-                EnumMap enum_map;
+                SignalInfo info;
+                
+                // Extract enum mappings
                 for (const auto& value_desc : sig.ValueEncodingDescriptions()) {
-                    enum_map[value_desc.Description()] = value_desc.Value();
+                    info.enums[value_desc.Description()] = value_desc.Value();
                     VLOG(2) << "Signal " << sig.Name() << " enum: " 
                             << value_desc.Value() << " = " << value_desc.Description();
                 }
-                if (!enum_map.empty()) {
-                    signal_enums_[sig.Name()] = std::move(enum_map);
-                }
+                
+                // Pre-calculate invalid/NA patterns
+                uint64_t bit_size = sig.BitSize();
+                uint64_t max_possible_raw = (bit_size >= 64) ? UINT64_MAX : ((1ULL << bit_size) - 1);
+                
+                info.invalid_raw_value = max_possible_raw;
+                info.na_raw_value = max_possible_raw - 1;
+                info.min_physical = sig.Minimum();
+                info.max_physical = sig.Maximum();
+                
+                // Check if invalid pattern is usable (outside valid range)
+                double physical_invalid = sig.RawToPhys(info.invalid_raw_value);
+                info.can_use_invalid_pattern = (physical_invalid < info.min_physical || 
+                                               physical_invalid > info.max_physical);
+                
+                // Check if NA pattern is usable (outside valid range)
+                double physical_na = sig.RawToPhys(info.na_raw_value);
+                info.can_use_na_pattern = (physical_na < info.min_physical || 
+                                          physical_na > info.max_physical);
+                
+                VLOG(2) << "Signal " << sig.Name() << ": bits=" << bit_size 
+                        << ", invalid=" << std::hex << info.invalid_raw_value 
+                        << " (usable=" << info.can_use_invalid_pattern << ")"
+                        << ", na=" << info.na_raw_value 
+                        << " (usable=" << info.can_use_na_pattern << ")"
+                        << ", range=[" << std::dec << info.min_physical 
+                        << ", " << info.max_physical << "]";
+                
+                signal_info_[sig.Name()] = std::move(info);
             }
         }
         
         LOG(INFO) << "Successfully parsed DBC file: " << dbc_file_ 
-                  << " with " << signal_enums_.size() << " signals having enums";
+                  << " with " << signal_info_.size() << " signals";
         return true;
     } catch (const std::exception& e) {
         LOG(ERROR) << "Exception parsing DBC file: " << e.what();
@@ -62,27 +90,39 @@ std::unordered_map<std::string, DBCDecodedValue> DBCParser::decode_message(uint3
         if (msg.Id() == can_id) {
             for (const auto& sig : msg.Signals()) {
                 try {
-                    double raw_value = sig.Decode(data);
+                    uint64_t raw_value = sig.Decode(data);
                     double physical_value = sig.RawToPhys(raw_value);
                     
                     DBCDecodedValue decoded_value;
                     
-                    // Check if this signal has enum mappings
-                    bool has_enums = (signal_enums_.find(sig.Name()) != signal_enums_.end());
-                    decoded_value.has_enums = has_enums;
+                    // Look up pre-calculated signal info
+                    auto info_it = signal_info_.find(sig.Name());
+                    if (info_it != signal_info_.end()) {
+                        const auto& info = info_it->second;
+                        decoded_value.has_enums = !info.enums.empty();
+                        decoded_value.status = info.check_status(raw_value, physical_value);
+                    } else {
+                        // Shouldn't happen if parse() was successful
+                        decoded_value.has_enums = false;
+                        decoded_value.status = SignalStatus::Valid;
+                    }
                     
                     // Determine type based on signal properties
-                    // Check if the physical value is an integer
-                    if (std::floor(physical_value) == physical_value && 
+                    // If the signal has scaling (factor != 1.0 or offset != 0), treat as double
+                    // Otherwise check if it can be represented as an integer
+                    if ((sig.Factor() == 1.0 && sig.Offset() == 0.0) &&
+                        std::floor(physical_value) == physical_value && 
                         physical_value >= std::numeric_limits<int64_t>::min() &&
                         physical_value <= std::numeric_limits<int64_t>::max()) {
-                        // It's an integer
+                        // It's an integer signal with no scaling
                         decoded_value.value = static_cast<int64_t>(physical_value);
-                        VLOG(2) << "Decoded signal " << sig.Name() << " = " << static_cast<int64_t>(physical_value) << " (int)";
+                        VLOG(2) << "Decoded signal " << sig.Name() << " = " << static_cast<int64_t>(physical_value) 
+                                << " (int, status=" << static_cast<int>(decoded_value.status) << ")";
                     } else {
-                        // It's a float
+                        // It's a float (has scaling or is a fractional value)
                         decoded_value.value = physical_value;
-                        VLOG(2) << "Decoded signal " << sig.Name() << " = " << physical_value << " (float)";
+                        VLOG(2) << "Decoded signal " << sig.Name() << " = " << physical_value 
+                                << " (float, status=" << static_cast<int>(decoded_value.status) << ")";
                     }
                     
                     decoded_signals[sig.Name()] = std::move(decoded_value);
@@ -109,27 +149,40 @@ std::vector<DBCSignalUpdate> DBCParser::decode_message_as_updates(uint32_t can_i
         if (msg.Id() == can_id) {
             for (const auto& sig : msg.Signals()) {
                 try {
-                    double raw_value = sig.Decode(data);
+                    uint64_t raw_value = sig.Decode(data);
                     double physical_value = sig.RawToPhys(raw_value);
                     
                     DBCSignalUpdate update;
                     update.dbc_signal_name = std::string_view(sig.Name());
                     
-                    // Check if this signal has enum mappings
-                    update.has_enums = (signal_enums_.find(sig.Name()) != signal_enums_.end());
+                    // Look up pre-calculated signal info
+                    auto info_it = signal_info_.find(sig.Name());
+                    if (info_it != signal_info_.end()) {
+                        const auto& info = info_it->second;
+                        update.has_enums = !info.enums.empty();
+                        update.status = info.check_status(raw_value, physical_value);
+                    } else {
+                        // Shouldn't happen if parse() was successful
+                        update.has_enums = false;
+                        update.status = SignalStatus::Valid;
+                    }
                     
                     // Determine type based on signal properties
-                    // Check if the physical value is an integer
-                    if (std::floor(physical_value) == physical_value && 
+                    // If the signal has scaling (factor != 1.0 or offset != 0), treat as double
+                    // Otherwise check if it can be represented as an integer
+                    if ((sig.Factor() == 1.0 && sig.Offset() == 0.0) &&
+                        std::floor(physical_value) == physical_value && 
                         physical_value >= std::numeric_limits<int64_t>::min() &&
                         physical_value <= std::numeric_limits<int64_t>::max()) {
-                        // It's an integer
+                        // It's an integer signal with no scaling
                         update.value = static_cast<int64_t>(physical_value);
-                        VLOG(2) << "Decoded signal " << sig.Name() << " = " << static_cast<int64_t>(physical_value) << " (int)";
+                        VLOG(2) << "Decoded signal " << sig.Name() << " = " << static_cast<int64_t>(physical_value) 
+                                << " (int, status=" << static_cast<int>(update.status) << ")";
                     } else {
-                        // It's a float
+                        // It's a float (has scaling or is a fractional value)
                         update.value = physical_value;
-                        VLOG(2) << "Decoded signal " << sig.Name() << " = " << physical_value << " (float)";
+                        VLOG(2) << "Decoded signal " << sig.Name() << " = " << physical_value 
+                                << " (float, status=" << static_cast<int>(update.status) << ")";
                     }
                     
                     updates.push_back(std::move(update));
@@ -173,15 +226,21 @@ std::vector<std::string> DBCParser::get_signal_names(uint32_t can_id) const {
 }
 
 DBCParser::EnumMap DBCParser::get_signal_enums(const std::string& signal_name) const {
-    auto it = signal_enums_.find(signal_name);
-    if (it != signal_enums_.end()) {
-        return it->second;
+    auto it = signal_info_.find(signal_name);
+    if (it != signal_info_.end()) {
+        return it->second.enums;
     }
     return {};
 }
 
 std::unordered_map<std::string, DBCParser::EnumMap> DBCParser::get_all_signal_enums() const {
-    return signal_enums_;
+    std::unordered_map<std::string, EnumMap> all_enums;
+    for (const auto& [name, info] : signal_info_) {
+        if (!info.enums.empty()) {
+            all_enums[name] = info.enums;
+        }
+    }
+    return all_enums;
 }
 
 std::optional<uint32_t> DBCParser::get_message_id_for_signal(const std::string& signal_name) const {
@@ -200,4 +259,4 @@ std::optional<uint32_t> DBCParser::get_message_id_for_signal(const std::string& 
     return std::nullopt;
 }
 
-} // namespace can_to_vss
+} // namespace vssdag

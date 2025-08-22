@@ -1,0 +1,170 @@
+# VSS Battery Cell Struct Type Definitions
+# For handling arrays of battery cell data with different strategies
+
+Types.SimpleBatteryCells:
+  type: struct
+  description: Simple battery cell array with statistics
+
+Types.SimpleBatteryCells.voltages:
+  datatype: float[]
+  type: property
+  description: Array of cell voltages
+  unit: V
+
+Types.SimpleBatteryCells.min_voltage:
+  datatype: float
+  type: property
+  description: Minimum cell voltage
+  unit: V
+
+Types.SimpleBatteryCells.max_voltage:
+  datatype: float
+  type: property
+  description: Maximum cell voltage
+  unit: V
+
+Types.SimpleBatteryCells.delta_voltage:
+  datatype: float
+  type: property
+  description: Difference between max and min cell voltage
+  unit: V
+
+Types.SimpleBatteryCells.average_voltage:
+  datatype: float
+  type: property
+  description: Average of all cell voltages
+  unit: V
+
+Types.SimpleBatteryCells.valid_cell_count:
+  datatype: uint16
+  type: property
+  description: Number of cells with valid (non-nil) values
+
+Types.SimpleBatteryCells.total_cell_count:
+  datatype: uint16
+  type: property
+  description: Total number of cells detected in the array
+
+# Windowed cells with freshness tracking
+Types.WindowedBatteryCells:
+  type: struct
+  description: Battery cells with freshness window tracking
+
+Types.WindowedBatteryCells.cells:
+  datatype: struct[]
+  type: property
+  description: Array of cell data with age information
+
+Types.WindowedBatteryCells.fresh_count:
+  datatype: uint16
+  type: property
+  description: Number of cells with fresh data
+
+Types.WindowedBatteryCells.total_count:
+  datatype: uint16
+  type: property
+  description: Total number of cells
+
+Types.WindowedBatteryCells.coverage_percent:
+  datatype: float
+  type: property
+  description: Percentage of cells with fresh data
+  unit: percent
+
+Types.WindowedBatteryCells.average_voltage:
+  datatype: float
+  type: property
+  description: Average voltage of fresh cells only
+  unit: V
+
+Types.WindowedBatteryCells.min_voltage:
+  datatype: float
+  type: property
+  description: Minimum voltage among fresh cells
+  unit: V
+
+Types.WindowedBatteryCells.max_voltage:
+  datatype: float
+  type: property
+  description: Maximum voltage among fresh cells
+  unit: V
+
+Types.WindowedBatteryCells.window_seconds:
+  datatype: float
+  type: property
+  description: Time window for freshness in seconds
+  unit: s
+
+Types.WindowedBatteryCells.timestamp:
+  datatype: float
+  type: property
+  description: Timestamp of this struct emission
+  unit: s
+
+# Complete cycle cells
+Types.CompleteBatteryCells:
+  type: struct
+  description: Battery cells emitted only when complete
+
+Types.CompleteBatteryCells.voltages:
+  datatype: float[]
+  type: property
+  description: Array of all cell voltages
+  unit: V
+
+Types.CompleteBatteryCells.timestamp:
+  datatype: float
+  type: property
+  description: Timestamp when cycle completed
+  unit: s
+
+Types.CompleteBatteryCells.complete:
+  datatype: boolean
+  type: property
+  description: Indicates all cells are fresh
+
+Types.CompleteBatteryCells.min_voltage:
+  datatype: float
+  type: property
+  description: Minimum voltage among all cells
+  unit: V
+
+Types.CompleteBatteryCells.max_voltage:
+  datatype: float
+  type: property
+  description: Maximum voltage among all cells
+  unit: V
+
+Types.CompleteBatteryCells.average_voltage:
+  datatype: float
+  type: property
+  description: Average voltage of all cells
+  unit: V
+
+Types.CompleteBatteryCells.cycle_time:
+  datatype: float
+  type: property
+  description: Time taken to scan all cells
+  unit: s
+
+Types.CompleteBatteryCells.cell_count:
+  datatype: uint16
+  type: property
+  description: Number of cells in complete set
+
+# Individual cell with metadata
+Types.CellData:
+  type: struct
+  description: Individual cell data with metadata
+
+Types.CellData.voltage:
+  datatype: float
+  type: property
+  description: Cell voltage
+  unit: V
+
+Types.CellData.age:
+  datatype: float
+  type: property
+  description: Age of this measurement in seconds
+  unit: s

@@ -1,10 +1,10 @@
-#include "libVSSDAG/vss_types.h"
+#include "vssdag/vss_types.h"
 #include <sstream>
 #include <iomanip>
 #include <cmath>
 #include <lua.hpp>
 
-namespace can_to_vss {
+namespace vssdag {
 
 // Convert typed value to appropriate VSS type based on VSS data type enum
 VSSValue VSSTypeHelper::from_typed_value(const std::variant<int64_t, double, std::string>& value, VSSDataType target_type) {
@@ -409,4 +409,4 @@ std::string VSSTypeHelper::to_json(const VSSValue& value) {
     }, value);
 }
 
-} // namespace can_to_vss
+} // namespace vssdag
