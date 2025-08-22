@@ -1,4 +1,4 @@
-#include "libVSSDAG/can/can_reader.h"
+#include "vssdag/can/can_reader.h"
 #include <glog/logging.h>
 #include <linux/can.h>
 #include <linux/can/raw.h>
@@ -9,7 +9,7 @@
 #include <cstring>
 #include <chrono>
 
-namespace can_to_vss {
+namespace vssdag {
 
 SocketCANReader::SocketCANReader() {
 }
@@ -107,4 +107,4 @@ void SocketCANReader::stop() {
     should_stop_ = true;
 }
 
-} // namespace can_to_vss
+} // namespace vssdag

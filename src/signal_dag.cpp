@@ -1,8 +1,8 @@
-#include "libVSSDAG/signal_dag.h"
+#include "vssdag/signal_dag.h"
 #include <queue>
 #include <algorithm>
 
-namespace can_to_vss {
+namespace vssdag {
 
 bool SignalDAG::build(const std::unordered_map<std::string, SignalMapping>& mappings) {
     nodes_.clear();
@@ -105,4 +105,4 @@ void SignalDAG::propagate_update_flag(SignalNode* node) {
     }
 }
 
-} // namespace can_to_vss
+} // namespace vssdag

@@ -1,0 +1,41 @@
+# VSS 4.0 Struct Type Definitions for Model 3
+# Defines custom struct types used in the mapping
+
+# Vehicle dynamics combining speed and acceleration
+Types.VehicleDynamics:
+  type: struct
+  description: Vehicle dynamics information
+
+Types.VehicleDynamics.Speed:
+  datatype: float
+  type: property
+  description: Current vehicle speed
+  unit: km/h
+  min: 0
+  max: 300
+
+Types.VehicleDynamics.LongitudinalAcceleration:
+  datatype: float
+  type: property
+  description: Longitudinal acceleration
+  unit: m/s^2
+  min: -20
+  max: 20
+
+# Pedal positions for brake and accelerator
+Types.PedalPositions:
+  type: struct
+  description: Pedal position information
+
+Types.PedalPositions.BrakePressed:
+  datatype: boolean
+  type: property
+  description: Whether brake pedal is pressed
+
+Types.PedalPositions.AcceleratorPosition:
+  datatype: float
+  type: property
+  description: Accelerator pedal position
+  unit: percent
+  min: 0
+  max: 100

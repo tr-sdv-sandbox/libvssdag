@@ -1,11 +1,11 @@
-#include "libVSSDAG/vss_struct_mapper.h"
+#include "vssdag/vss_struct_mapper.h"
 #include <yaml-cpp/yaml.h>
 #include <nlohmann/json.hpp>
 #include <glog/logging.h>
 #include <fstream>
 #include <sstream>
 
-namespace can_to_vss {
+namespace vssdag {
 
 // StructBuffer Implementation
 StructBuffer::StructBuffer(const StructType& type, const StructSignalMapping& mapping)
@@ -466,4 +466,4 @@ std::string VSSStructMapper::format_struct_value(
     return json_obj.dump();
 }
 
-} // namespace can_to_vss
+} // namespace vssdag

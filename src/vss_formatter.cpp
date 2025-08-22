@@ -1,10 +1,10 @@
-#include "libVSSDAG/vss_formatter.h"
+#include "vssdag/vss_formatter.h"
 #include <glog/logging.h>
 #include <sstream>
 #include <iomanip>
 #include <chrono>
 
-namespace can_to_vss {
+namespace vssdag {
 
 void VSSFormatter::log_vss_signal(const VSSSignal& signal) {
     LOG(INFO) << format_vss_signal(signal);
@@ -28,4 +28,4 @@ std::string VSSFormatter::format_vss_signal(const VSSSignal& signal) {
     return oss.str();
 }
 
-} // namespace can_to_vss
+} // namespace vssdag
