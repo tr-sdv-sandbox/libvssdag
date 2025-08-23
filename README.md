@@ -16,6 +16,7 @@ libVSSDAG provides a flexible signal processing pipeline that transforms raw CAN
 - **Real-time Processing**: Optimized for automotive real-time requirements
 - **Flexible Data Sources**: Support for live CAN interfaces and log replay
 - **Signal Aggregation**: Multiple strategies for handling slowly-arriving distributed data
+- **Invalid/Not-Available Signal Handling**: Automatic detection and propagation of invalid sensor states
 
 ## Installation
 
@@ -27,14 +28,26 @@ sudo apt-get install -y \
     build-essential \
     cmake \
     libgoogle-glog-dev \
-    liblua5.3-dev \
+    liblua5.4-dev \
     libyaml-cpp-dev \
     nlohmann-json3-dev \
+    libxml2-dev \
     can-utils
+
+# For testing (optional)
+sudo apt-get install -y \
+    libgtest-dev \
+    libgmock-dev
 
 # Or use the provided script
 ./install_prereq.sh
 ```
+
+Note: The build system will automatically fetch missing dependencies:
+- yaml-cpp 0.8.0 (if not found)
+- nlohmann/json 3.11.2 (if not found)
+- dbcppp (CAN DBC parser)
+- moodycamel/concurrentqueue 1.0.4
 
 ### Building
 
@@ -52,8 +65,8 @@ make -j$(nproc)
 
 ```cmake
 # In your CMakeLists.txt
-find_package(libVSSDAG REQUIRED)
-target_link_libraries(your_target PRIVATE VSSDAG)
+add_subdirectory(path/to/libVSSDAG)
+target_link_libraries(your_target PRIVATE vssdag)
 ```
 
 ## Library Usage
@@ -79,8 +92,14 @@ while (running) {
     auto vss_signals = processor.process_signal_updates(updates);
     
     for (const auto& signal : vss_signals) {
-        // Handle VSS signal
-        std::cout << signal.path << " = " << signal.value << std::endl;
+        // Handle VSS signal with status
+        if (signal.status == SignalStatus::Valid) {
+            std::cout << signal.path << " = " << signal.value << std::endl;
+        } else if (signal.status == SignalStatus::Invalid) {
+            std::cout << signal.path << " = INVALID" << std::endl;
+        } else if (signal.status == SignalStatus::NotAvailable) {
+            std::cout << signal.path << " = NOT AVAILABLE" << std::endl;
+        }
     }
 }
 ```
@@ -160,11 +179,13 @@ The repository includes comprehensive examples demonstrating various use cases:
 
 # Tesla Model 3 CAN processing
 cd examples/tesla_model3
-./run_demo.sh
+./run_can_replay.sh   # For replaying logged CAN data
+# or
+./run_transformer.sh  # For live CAN interface
 
 # Battery management system simulation  
 cd examples/battery_management
-./run_demo.sh
+./run_battery_simulation.sh
 ```
 
 ### Example Applications
@@ -172,6 +193,7 @@ cd examples/battery_management
 - **can-transformer**: Reference implementation showing library usage
 - **Tesla Simulation**: Real-world CAN data processing with derived signals
 - **Battery Simulation**: Demonstrates aggregation strategies for distributed sensors
+- **Invalid Signal Handling**: Examples of detecting and handling sensor failures (see `examples/invalid_signal_handling.yaml`)
 
 ## Advanced Features
 
@@ -179,11 +201,53 @@ cd examples/battery_management
 
 The library provides built-in Lua functions for common operations:
 
-- `lowpass(value, alpha)`: Low-pass filter
+- `lowpass(value, alpha)`: Low-pass filter with configurable invalid signal strategies
 - `derivative(value, signal_name)`: Calculate rate of change
 - `moving_average(value, signal_name, window)`: Moving average
 - `threshold(value, limit)`: Threshold detection
 - `state_machine(state, event)`: State machine implementation
+
+### Invalid/Not-Available Signal Handling
+
+The library automatically detects and propagates invalid and not-available signals from CAN bus:
+
+#### Automatic Detection
+- **Invalid signals**: Detected when all bits are set (0xFF pattern) or values are out of range
+- **Not-Available signals**: Detected when all bits minus one are set (0xFE pattern)
+- **DBC-aware**: Respects signal ranges defined in DBC files
+
+#### Lua Signal Status
+Signals in Lua have associated status information:
+
+```lua
+-- Invalid/NA signals are represented as nil
+if dependencies["Battery.Voltage"] == nil then
+    -- Check status table for reason
+    if status["Battery.Voltage"] == STATUS_INVALID then
+        -- Sensor failure or out-of-range
+    elseif status["Battery.Voltage"] == STATUS_NOT_AVAILABLE then
+        -- Sensor not equipped or not ready
+    end
+end
+
+-- Built-in filter strategies for invalid signals
+lowpass(value, alpha, STRATEGY_HOLD)  -- Hold last valid value
+lowpass(value, alpha, STRATEGY_PROPAGATE)  -- Propagate nil
+lowpass(value, alpha, STRATEGY_HOLD_TIMEOUT, 5000)  -- Hold with timeout
+```
+
+#### Status Constants
+```lua
+-- Signal status values
+STATUS_VALID = 0
+STATUS_INVALID = 1
+STATUS_NOT_AVAILABLE = 2
+
+-- Filter strategies
+STRATEGY_PROPAGATE = 0
+STRATEGY_HOLD = 1
+STRATEGY_HOLD_TIMEOUT = 2
+```
 
 ### Signal Dependencies
 

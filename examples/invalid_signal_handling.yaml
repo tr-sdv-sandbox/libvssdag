@@ -1,0 +1,142 @@
+# Example: Invalid/Not-Available Signal Handling
+# Demonstrates detection and handling of invalid sensor states
+
+mappings:
+  # Temperature sensor that may report invalid/NA values
+  - signal: cabin_temperature
+    source:
+      type: dbc
+      name: HVAC_CabinTemp  # DBC signal with range [-40, 85]
+    datatype: float
+    transform:
+      code: |
+        -- Signal arrives as nil when invalid/NA
+        if x == nil then
+          if status["HVAC_CabinTemp"] == STATUS_INVALID then
+            print("Cabin temp sensor failure detected")
+            return nil  -- Propagate invalid state
+          elseif status["HVAC_CabinTemp"] == STATUS_NOT_AVAILABLE then
+            print("Cabin temp sensor not ready")
+            return nil  -- Propagate NA state
+          end
+        end
+        return x
+
+  # Filtered temperature with hold strategy
+  - signal: cabin_temperature_filtered
+    depends_on: [cabin_temperature]
+    datatype: float
+    transform:
+      code: |
+        local temp = dependencies["cabin_temperature"]
+        -- Use STRATEGY_HOLD to maintain last valid value during sensor failures
+        return lowpass(temp, 0.3, STRATEGY_HOLD)
+
+  # Filtered with timeout strategy
+  - signal: cabin_temperature_safe
+    depends_on: [cabin_temperature]
+    datatype: float
+    transform:
+      code: |
+        local temp = dependencies["cabin_temperature"]
+        -- Hold for 5 seconds, then propagate invalid
+        return lowpass(temp, 0.3, STRATEGY_HOLD_TIMEOUT, 5000)
+
+  # Battery monitoring with invalid detection
+  - signal: battery_health
+    depends_on: [battery_voltage, battery_current, battery_temp]
+    datatype: struct
+    struct_type: BatteryHealth
+    transform:
+      code: |
+        local voltage = dependencies["battery_voltage"]
+        local current = dependencies["battery_current"]
+        local temp = dependencies["battery_temp"]
+        
+        -- Check for sensor failures
+        local sensor_status = "OK"
+        local degraded = false
+        
+        if voltage == nil then
+          sensor_status = "VOLTAGE_SENSOR_FAULT"
+          degraded = true
+          voltage = 12.0  -- Use safe default
+        end
+        
+        if current == nil then
+          sensor_status = sensor_status == "OK" and "CURRENT_SENSOR_FAULT" 
+                          or sensor_status .. ",CURRENT_SENSOR_FAULT"
+          degraded = true
+          current = 0.0  -- Assume no load
+        end
+        
+        if temp == nil then
+          sensor_status = sensor_status == "OK" and "TEMP_SENSOR_FAULT" 
+                          or sensor_status .. ",TEMP_SENSOR_FAULT"
+          degraded = true
+          temp = 25.0  -- Assume room temperature
+        end
+        
+        return {
+          voltage = voltage,
+          current = current,
+          temperature = temp,
+          power = voltage * current,
+          sensor_status = sensor_status,
+          degraded_mode = degraded
+        }
+
+  # Derived signal that requires all inputs valid
+  - signal: precise_power_calculation
+    depends_on: [battery_voltage, battery_current]
+    datatype: float
+    transform:
+      code: |
+        local voltage = dependencies["battery_voltage"]
+        local current = dependencies["battery_current"]
+        
+        -- Only calculate if both sensors are valid
+        if voltage == nil or current == nil then
+          return nil  -- Cannot calculate without valid data
+        end
+        
+        return voltage * current
+
+  # Smart sensor fusion with fallback
+  - signal: vehicle_speed_fused
+    depends_on: [wheel_speed_fl, wheel_speed_fr, wheel_speed_rl, wheel_speed_rr, gps_speed]
+    datatype: float
+    transform:
+      code: |
+        -- Try wheel speed average first
+        local wheel_speeds = {
+          dependencies["wheel_speed_fl"],
+          dependencies["wheel_speed_fr"],
+          dependencies["wheel_speed_rl"],
+          dependencies["wheel_speed_rr"]
+        }
+        
+        local valid_wheels = {}
+        for i, speed in ipairs(wheel_speeds) do
+          if speed ~= nil then
+            table.insert(valid_wheels, speed)
+          end
+        end
+        
+        -- Need at least 2 valid wheel speeds
+        if #valid_wheels >= 2 then
+          local sum = 0
+          for _, v in ipairs(valid_wheels) do
+            sum = sum + v
+          end
+          return sum / #valid_wheels
+        end
+        
+        -- Fall back to GPS if available
+        local gps = dependencies["gps_speed"]
+        if gps ~= nil then
+          return gps
+        end
+        
+        -- No valid speed source
+        return nil
