@@ -8,11 +8,16 @@ VCAN_INTERFACE="${1:-vcan0}"
 DBC_FILE="${2:-Model3CAN.dbc}"
 MAPPING_FILE="${3:-model3_mappings_dag.yaml}"
 
-# Binary location (adjust if needed)
-TRANSFORMER_BIN="../../build/can_transformer"
+if ! ip link show $VCAN_INTERFACE &> /dev/null; then
+  sudo ip link add dev $VCAN_INTERFACE type vcan
+  sudo ip link set up $VCAN_INTERFACE 
+fi
+
+TRANSFORMER_BIN="../../build/examples/can_transformer/can-transformer"
 
 # Output log file
-LOG_FILE="can_to_vss_dag_$(date +%Y%m%d_%H%M%S).log"
+mkdir -p logs
+LOG_FILE="logs/can_to_vss_dag_$(date +%Y%m%d_%H%M%S).log"
 
 # Colors for output
 RED='\033[0;31m'
@@ -21,11 +26,11 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-echo -e "${GREEN}=== CAN to VSS DAG Converter ===${NC}"
+echo -e "${GREEN}=== CAN TRANSFORMER ===${NC}"
 
 # Check if binary exists
 if [ ! -f "$TRANSFORMER_BIN" ]; then
-    echo -e "${RED}Error: CAN to VSS DAG binary not found: ${NC}"
+    echo -e "${RED}Error: CAN TRANSFORMER binary not found: ${NC}"
     echo -e "${YELLOW}Please build the project first:${NC}"
     echo "  cd build"
     echo "  cmake .."
@@ -42,15 +47,6 @@ fi
 # Check if mapping file exists
 if [ ! -f "$MAPPING_FILE" ]; then
     echo -e "${RED}Error: Mapping file not found: $MAPPING_FILE${NC}"
-    exit 1
-fi
-
-# Check if virtual CAN interface exists
-if ! ip link show $VCAN_INTERFACE &> /dev/null; then
-    echo -e "${RED}Error: CAN interface not found: $VCAN_INTERFACE${NC}"
-    echo -e "${YELLOW}Please run the CAN replay script first or create the interface:${NC}"
-    echo "  sudo ip link add dev $VCAN_INTERFACE type vcan"
-    echo "  sudo ip link set up $VCAN_INTERFACE"
     exit 1
 fi
 
