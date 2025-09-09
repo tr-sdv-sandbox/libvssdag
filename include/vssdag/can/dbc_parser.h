@@ -37,6 +37,9 @@ public:
     
     // Get the CAN message ID that contains a specific signal
     std::optional<uint32_t> get_message_id_for_signal(const std::string& signal_name) const;
+    
+    // Convert an enum value to its string representation (returns empty optional if not found)
+    std::optional<std::string> get_enum_string(const std::string& signal_name, int64_t value) const;
 
 private:
     std::string dbc_file_;
@@ -45,7 +48,8 @@ private:
     // Complete signal information including pre-calculated invalid/NA patterns
     struct SignalInfo {
         // Enum mappings (if any)
-        EnumMap enums;
+        EnumMap enums;  // string -> int64_t
+        std::unordered_map<int64_t, std::string> reverse_enums;  // int64_t -> string for fast lookup
         
         // Pre-calculated invalid/NA detection values
         uint64_t invalid_raw_value;     // All bits set pattern

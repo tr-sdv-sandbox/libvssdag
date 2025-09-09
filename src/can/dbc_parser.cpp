@@ -34,6 +34,7 @@ bool DBCParser::parse() {
                 // Extract enum mappings
                 for (const auto& value_desc : sig.ValueEncodingDescriptions()) {
                     info.enums[value_desc.Description()] = value_desc.Value();
+                    info.reverse_enums[value_desc.Value()] = value_desc.Description();
                     VLOG(2) << "Signal " << sig.Name() << " enum: " 
                             << value_desc.Value() << " = " << value_desc.Description();
                 }
@@ -86,8 +87,12 @@ std::unordered_map<std::string, DBCDecodedValue> DBCParser::decode_message(uint3
         return decoded_signals;
     }
 
+    // Always strip extended frame flag for comparison
+    const uint32_t CAN_EFF_MASK = 0x1FFFFFFFU;
+    uint32_t can_id_masked = can_id & CAN_EFF_MASK;
+
     for (const auto& msg : network_->Messages()) {
-        if (msg.Id() == can_id) {
+        if ((msg.Id() & CAN_EFF_MASK) == can_id_masked) {
             for (const auto& sig : msg.Signals()) {
                 try {
                     uint64_t raw_value = sig.Decode(data);
@@ -111,13 +116,13 @@ std::unordered_map<std::string, DBCDecodedValue> DBCParser::decode_message(uint3
                     // If the signal has scaling (factor != 1.0 or offset != 0), treat as double
                     // Otherwise check if it can be represented as an integer
                     if ((sig.Factor() == 1.0 && sig.Offset() == 0.0) &&
-                        std::floor(physical_value) == physical_value && 
-                        physical_value >= std::numeric_limits<int64_t>::min() &&
-                        physical_value <= std::numeric_limits<int64_t>::max()) {
-                        // It's an integer signal with no scaling
-                        decoded_value.value = static_cast<int64_t>(physical_value);
-                        VLOG(2) << "Decoded signal " << sig.Name() << " = " << static_cast<int64_t>(physical_value) 
-                                << " (int, status=" << static_cast<int>(decoded_value.status) << ")";
+                            std::floor(physical_value) == physical_value && 
+                            physical_value >= std::numeric_limits<int64_t>::min() &&
+                            physical_value <= std::numeric_limits<int64_t>::max()) {
+                            // It's an integer signal with no scaling
+                            decoded_value.value = static_cast<int64_t>(physical_value);
+                            VLOG(2) << "Decoded signal " << sig.Name() << " = " << static_cast<int64_t>(physical_value) 
+                                    << " (int, status=" << static_cast<int>(decoded_value.status) << ")";
                     } else {
                         // It's a float (has scaling or is a fractional value)
                         decoded_value.value = physical_value;
@@ -145,8 +150,12 @@ std::vector<DBCSignalUpdate> DBCParser::decode_message_as_updates(uint32_t can_i
         return updates;
     }
 
+    // Always strip extended frame flag for comparison
+    const uint32_t CAN_EFF_MASK = 0x1FFFFFFFU;
+    uint32_t can_id_masked = can_id & CAN_EFF_MASK;
+
     for (const auto& msg : network_->Messages()) {
-        if (msg.Id() == can_id) {
+        if ((msg.Id() & CAN_EFF_MASK) == can_id_masked) {
             for (const auto& sig : msg.Signals()) {
                 try {
                     uint64_t raw_value = sig.Decode(data);
@@ -171,13 +180,13 @@ std::vector<DBCSignalUpdate> DBCParser::decode_message_as_updates(uint32_t can_i
                     // If the signal has scaling (factor != 1.0 or offset != 0), treat as double
                     // Otherwise check if it can be represented as an integer
                     if ((sig.Factor() == 1.0 && sig.Offset() == 0.0) &&
-                        std::floor(physical_value) == physical_value && 
-                        physical_value >= std::numeric_limits<int64_t>::min() &&
-                        physical_value <= std::numeric_limits<int64_t>::max()) {
-                        // It's an integer signal with no scaling
-                        update.value = static_cast<int64_t>(physical_value);
-                        VLOG(2) << "Decoded signal " << sig.Name() << " = " << static_cast<int64_t>(physical_value) 
-                                << " (int, status=" << static_cast<int>(update.status) << ")";
+                            std::floor(physical_value) == physical_value && 
+                            physical_value >= std::numeric_limits<int64_t>::min() &&
+                            physical_value <= std::numeric_limits<int64_t>::max()) {
+                            // It's an integer signal with no scaling
+                            update.value = static_cast<int64_t>(physical_value);
+                            VLOG(2) << "Decoded signal " << sig.Name() << " = " << static_cast<int64_t>(physical_value) 
+                                    << " (int, status=" << static_cast<int>(update.status) << ")";
                     } else {
                         // It's a float (has scaling or is a fractional value)
                         update.value = physical_value;
@@ -251,12 +260,28 @@ std::optional<uint32_t> DBCParser::get_message_id_for_signal(const std::string& 
     for (const auto& msg : network_->Messages()) {
         for (const auto& sig : msg.Signals()) {
             if (sig.Name() == signal_name) {
-                return msg.Id();
+                // Return the ID with extended flag stripped
+                const uint32_t CAN_EFF_MASK = 0x1FFFFFFFU;
+                return msg.Id() & CAN_EFF_MASK;
             }
         }
     }
     
     return std::nullopt;
+}
+
+std::optional<std::string> DBCParser::get_enum_string(const std::string& signal_name, int64_t value) const {
+    auto it = signal_info_.find(signal_name);
+    if (it == signal_info_.end()) {
+        return std::nullopt;
+    }
+    
+    auto enum_it = it->second.reverse_enums.find(value);
+    if (enum_it == it->second.reverse_enums.end()) {
+        return std::nullopt;
+    }
+    
+    return enum_it->second;
 }
 
 } // namespace vssdag
