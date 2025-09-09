@@ -32,11 +32,11 @@ fi
 VCAN_INTERFACE="${1:-vcan0}"
 DBC_FILE="$SCRIPT_DIR/BatterySimulation.dbc"
 MAPPING_FILE="$SCRIPT_DIR/battery_cells_mapping.yaml"
-TRANSFORMER_BIN="../../build/can_handler_ex"
+TRANSFORMER_BIN="../../build/examples/can_transformer/can-transformer"
 
 # Check if binary exists
-if [ ! -f "$CAN_TO_VSS_BIN" ]; then
-    echo -e "${RED}Error: CAN to VSS DAG binary not found: $CAN_TO_VSS_BIN${NC}"
+if [ ! -f "$TRANSFORMER_BIN" ]; then
+    echo -e "${RED}Error: CAN TRANSFORMER binary not found: $TRANSFORMER_BIN${NC}"
     echo -e "${YELLOW}Please build the project first:${NC}"
     echo "  cd $PROJECT_ROOT"
     echo "  ./build.sh"

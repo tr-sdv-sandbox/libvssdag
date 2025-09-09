@@ -301,4 +301,4 @@ Contributions are welcome! Please ensure:
 
 ## Support
 
-For issues, questions, or contributions, please [open an issue](https://github.com/yourusername/libVSSDAG/issues).
+For issues, questions, or contributions, please [open an issue](https://github.com/skarlsson/libVSSDAG/issues).
