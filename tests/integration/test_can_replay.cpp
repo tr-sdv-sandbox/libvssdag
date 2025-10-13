@@ -61,7 +61,7 @@ TEST_F(CANReplayTest, SimpleLogReplay) {
     SignalMapping speed_mapping;
     speed_mapping.source.type = "dbc";
     speed_mapping.source.name = "VehicleSpeed";
-    speed_mapping.datatype = VSSDataType::Double;
+    speed_mapping.datatype = ValueType::DOUBLE;
     speed_mapping.transform = CodeTransform{"x"};
     mappings["Vehicle.Speed"] = speed_mapping;
     
@@ -92,7 +92,12 @@ TEST_F(CANReplayTest, SimpleLogReplay) {
                 
                 for (const auto& signal : vss_signals) {
                     if (signal.path == "Vehicle.Speed") {
-                        speeds_collected.push_back(std::stod(signal.value));
+                        // Extract double value from the variant
+                        if (auto* val = std::get_if<double>(&signal.qualified_value.value)) {
+                            speeds_collected.push_back(*val);
+                        } else if (auto* val = std::get_if<float>(&signal.qualified_value.value)) {
+                            speeds_collected.push_back(static_cast<double>(*val));
+                        }
                     }
                 }
             }
@@ -119,20 +124,20 @@ TEST_F(CANReplayTest, DerivedSignalsReplay) {
     SignalMapping speed_mapping;
     speed_mapping.source.type = "dbc";
     speed_mapping.source.name = "VehicleSpeed";
-    speed_mapping.datatype = VSSDataType::Double;
+    speed_mapping.datatype = ValueType::DOUBLE;
     mappings["Vehicle.Speed"] = speed_mapping;
-    
+
     SignalMapping throttle_mapping;
     throttle_mapping.source.type = "dbc";
     throttle_mapping.source.name = "ThrottlePos";
-    throttle_mapping.datatype = VSSDataType::Double;
+    throttle_mapping.datatype = ValueType::DOUBLE;
     mappings["Vehicle.Throttle"] = throttle_mapping;
-    
+
     // Derived signal: driving mode based on speed and throttle
     SignalMapping mode_mapping;
     mode_mapping.depends_on.push_back("Vehicle.Speed");
     mode_mapping.depends_on.push_back("Vehicle.Throttle");
-    mode_mapping.datatype = VSSDataType::String;
+    mode_mapping.datatype = ValueType::STRING;
     mode_mapping.transform = CodeTransform{
         "local speed = deps['Vehicle.Speed']\n"
         "local throttle = deps['Vehicle.Throttle']\n"
@@ -178,7 +183,10 @@ TEST_F(CANReplayTest, DerivedSignalsReplay) {
         
         for (const auto& signal : vss_signals) {
             if (signal.path == "Vehicle.DrivingMode") {
-                modes_by_time[timestamp] = signal.value;
+                // Extract string value from the variant
+                if (auto* val = std::get_if<std::string>(&signal.qualified_value.value)) {
+                    modes_by_time[timestamp] = *val;
+                }
             }
         }
     }
@@ -208,7 +216,7 @@ TEST_F(CANReplayTest, PerformanceTest) {
     SignalMapping speed_mapping;
     speed_mapping.source.type = "dbc";
     speed_mapping.source.name = "VehicleSpeed";
-    speed_mapping.datatype = VSSDataType::Double;
+    speed_mapping.datatype = ValueType::DOUBLE;
     speed_mapping.transform = CodeTransform{"x * 3.6"};  // Convert to km/h
     mappings["Vehicle.Speed"] = speed_mapping;
     

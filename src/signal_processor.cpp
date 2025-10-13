@@ -36,10 +36,13 @@ bool SignalProcessorDAG::initialize(const std::unordered_map<std::string, Signal
 
 bool SignalProcessorDAG::setup_lua_environment() {
     const char* dag_lua_infrastructure = R"(
--- Signal status constants (matching C++ SignalStatus enum)
-STATUS_VALID = 0
-STATUS_INVALID = 1
-STATUS_NOT_AVAILABLE = 2
+-- Signal status constants (matching vss::types::SignalQuality enum)
+STATUS_UNKNOWN = 0
+STATUS_VALID = 1
+STATUS_INVALID = 2
+STATUS_NOT_AVAILABLE = 3
+STATUS_STALE = 4
+STATUS_OUT_OF_RANGE = 5
 
 -- Invalid signal handling strategies
 STRATEGY_PROPAGATE = 0     -- Return nil immediately (default)
@@ -376,8 +379,8 @@ void SignalProcessorDAG::generate_transform_function(const SignalNode* node) {
             if (!node->is_input_signal) {
                 lua << "    if result == nil then my_status = STATUS_INVALID end\n";
             }
-            lua << "    return create_vss_signal('" << node->signal_name 
-                << "', result, '" << vss_datatype_to_string(node->mapping.datatype) << "', my_status)\n";
+            lua << "    return create_vss_signal('" << node->signal_name
+                << "', result, '" << value_type_to_string(node->mapping.datatype) << "', my_status)\n";
         } else {
             // Single-line expression
             lua << "    local result = " << code.expression << "\n";
@@ -389,8 +392,8 @@ void SignalProcessorDAG::generate_transform_function(const SignalNode* node) {
             if (!node->is_input_signal) {
                 lua << "    if result == nil then my_status = STATUS_INVALID end\n";
             }
-            lua << "    return create_vss_signal('" << node->signal_name 
-                << "', result, '" << vss_datatype_to_string(node->mapping.datatype) << "', my_status)\n";
+            lua << "    return create_vss_signal('" << node->signal_name
+                << "', result, '" << value_type_to_string(node->mapping.datatype) << "', my_status)\n";
         }
             
     } else if (std::holds_alternative<ValueMapping>(node->mapping.transform)) {
@@ -443,7 +446,7 @@ void SignalProcessorDAG::generate_transform_function(const SignalNode* node) {
             lua << "    if result == nil then my_status = 'invalid' end\n";
         }
         lua << "    return create_vss_signal('" << node->signal_name 
-            << "', result, '" << vss_datatype_to_string(node->mapping.datatype) << "', my_status)\n";
+            << "', result, '" << value_type_to_string(node->mapping.datatype) << "', my_status)\n";
         
     } else {
         // DirectMapping
@@ -465,12 +468,13 @@ void SignalProcessorDAG::generate_transform_function(const SignalNode* node) {
             lua << "    -- Status already set from signal_status table\n";
         }
         lua << "    return create_vss_signal('" << node->signal_name 
-            << "', result, '" << vss_datatype_to_string(node->mapping.datatype) << "', my_status)\n";
+            << "', result, '" << value_type_to_string(node->mapping.datatype) << "', my_status)\n";
     }
     
     lua << "end\n";
-    
-    if (!lua_mapper_->execute_lua_string(lua.str())) {
+
+    std::string lua_code = lua.str();
+    if (!lua_mapper_->execute_lua_string(lua_code)) {
         LOG(ERROR) << "Failed to generate transform for signal: " << node->signal_name;
     } else {
         VLOG(2) << "Generated transform for " << node->signal_name;
@@ -486,22 +490,36 @@ std::optional<VSSSignal> SignalProcessorDAG::process_node(SignalNode* node) {
     // Get input value - now typed
     std::variant<int64_t, double, std::string> input_value;
     if (node->is_input_signal) {
-        auto status_it = signal_status_.find(node->signal_name);
-        if (status_it != signal_status_.end() && 
-            status_it->second != SignalStatus::Valid) {
+        auto it = signal_values_.find(node->signal_name);
+        if (it != signal_values_.end() &&
+            it->second.quality != vss::types::SignalQuality::VALID) {
             // For invalid/NA signals, we'll pass a special marker value
             // The Lua transform can check for nil and decide what to do
             input_value = 0.0;  // Dummy value, Lua will see nil
-        } else {
+        } else if (it != signal_values_.end()) {
             // For valid input signals, use the stored typed value
-            auto it = signal_values_.find(node->signal_name);
-            if (it != signal_values_.end()) {
-                input_value = it->second;
+            // Extract the value from the qualified value - handle all integer types
+            if (auto* val = std::get_if<int32_t>(&it->second.value)) {
+                input_value = static_cast<int64_t>(*val);
+            } else if (auto* val = std::get_if<int64_t>(&it->second.value)) {
+                input_value = *val;
+            } else if (auto* val = std::get_if<uint32_t>(&it->second.value)) {
+                input_value = static_cast<int64_t>(*val);
+            } else if (auto* val = std::get_if<uint64_t>(&it->second.value)) {
+                input_value = static_cast<int64_t>(*val);
+            } else if (auto* val = std::get_if<float>(&it->second.value)) {
+                input_value = static_cast<double>(*val);
+            } else if (auto* val = std::get_if<double>(&it->second.value)) {
+                input_value = *val;
+            } else if (auto* val = std::get_if<std::string>(&it->second.value)) {
+                input_value = *val;
             } else {
-                // If not found and we got here, it's a valid signal with no value yet
-                // This shouldn't normally happen if status is properly tracked
-                input_value = 0.0;
+                input_value = 0.0;  // Default for other types
+                LOG(WARNING) << "Could not extract value for " << node->signal_name << " - unhandled type in Value variant";
             }
+        } else {
+            // If not found, use default
+            input_value = 0.0;
         }
     } else {
         // For derived signals, input is ignored but we need a value
@@ -531,11 +549,11 @@ std::optional<VSSSignal> SignalProcessorDAG::process_node(SignalNode* node) {
         lua_getglobal(L, "signal_status");
         if (lua_istable(L, -1)) {
             lua_pushstring(L, node->signal_name.c_str());
-            
-            auto status_it = signal_status_.find(node->signal_name);
+
+            auto it = signal_values_.find(node->signal_name);
             int status_val = 0;  // STATUS_VALID
-            if (status_it != signal_status_.end()) {
-                status_val = static_cast<int>(status_it->second);
+            if (it != signal_values_.end()) {
+                status_val = static_cast<int>(it->second.quality);
             }
             lua_pushinteger(L, status_val);
             lua_settable(L, -3);
@@ -557,14 +575,16 @@ std::optional<VSSSignal> SignalProcessorDAG::process_node(SignalNode* node) {
                 // Check if it's an integer
                 double d = std::stod(provided_value.value());
                 if (std::floor(d) == d && d >= std::numeric_limits<int64_t>::min() && d <= std::numeric_limits<int64_t>::max()) {
-                    signal_values_[node->signal_name] = static_cast<int64_t>(d);
+                    signal_values_[node->signal_name].value = static_cast<int64_t>(d);
                 } else {
-                    signal_values_[node->signal_name] = d;
+                    signal_values_[node->signal_name].value = d;
                 }
             } catch (...) {
                 // Store as string if conversion fails
-                signal_values_[node->signal_name] = provided_value.value();
+                signal_values_[node->signal_name].value = provided_value.value();
             }
+            signal_values_[node->signal_name].quality = SignalQuality::VALID;
+            signal_values_[node->signal_name].timestamp = std::chrono::system_clock::now();
         }
     }
     
@@ -590,15 +610,19 @@ void SignalProcessorDAG::setup_node_context(const SignalNode* node) {
     
     for (const auto& dep : node->depends_on) {
         auto it = signal_values_.find(dep);
-        if (it != signal_values_.end()) {
-            // Push key
-            lua_pushstring(L, dep.c_str());
-            // Push typed value
-            VSSTypeHelper::push_typed_value_to_lua(L, it->second);
-            // Set table
-            lua_settable(L, -3);
+        // Push key
+        lua_pushstring(L, dep.c_str());
+
+        if (it != signal_values_.end() && it->second.quality == vss::types::SignalQuality::VALID) {
+            // Push typed value only if quality is VALID
+            VSSTypeHelper::push_value_to_lua(L, it->second.value);
+        } else {
+            // Push nil for invalid/unavailable/not found signals
+            lua_pushnil(L);
         }
-        // If not found, the key simply won't exist in the table (nil)
+
+        // Set table
+        lua_settable(L, -3);
     }
     
     // Set the deps table as global
@@ -606,14 +630,14 @@ void SignalProcessorDAG::setup_node_context(const SignalNode* node) {
     
     // Create deps_status table
     lua_newtable(L);
-    
+
     for (const auto& dep : node->depends_on) {
-        auto status_it = signal_status_.find(dep);
-        if (status_it != signal_status_.end()) {
+        auto it = signal_values_.find(dep);
+        if (it != signal_values_.end()) {
             lua_pushstring(L, dep.c_str());
-            
+
             // Push status as integer matching Lua constants
-            int status_val = static_cast<int>(status_it->second);
+            int status_val = static_cast<int>(it->second.quality);
             lua_pushinteger(L, status_val);
             lua_settable(L, -3);
         }
@@ -644,32 +668,24 @@ std::vector<VSSSignal> SignalProcessorDAG::process_signal_updates(
     for (const auto& update : updates) {
         if (auto* node = dag_->get_node(update.signal_name)) {
             if (node->is_input_signal) {
-                // Store the status
-                signal_status_[update.signal_name] = update.status;
-                
-                // Only store value if valid, otherwise we'll use nil in Lua
-                if (update.status == SignalStatus::Valid) {
+                // Store the qualified value (value + quality + timestamp)
+                signal_values_[update.signal_name].value = update.value;
+                signal_values_[update.signal_name].quality = update.status;
+                // Convert steady_clock to system_clock timestamp
+                auto steady_now = std::chrono::steady_clock::now();
+                auto system_now = std::chrono::system_clock::now();
+                auto elapsed = steady_now - update.timestamp;
+                signal_values_[update.signal_name].timestamp = system_now - elapsed;
+
+                // Log the update
+                if (update.status == vss::types::SignalQuality::VALID) {
                     // Log with type info
-                    std::visit([&](auto&& val) {
-                        using T = std::decay_t<decltype(val)>;
-                        if constexpr (std::is_same_v<T, int64_t>) {
-                            VLOG(2) << "Updating input signal " << update.signal_name << " = " << val << " (int)";
-                        } else if constexpr (std::is_same_v<T, double>) {
-                            VLOG(2) << "Updating input signal " << update.signal_name << " = " << val << " (double)";
-                        } else {
-                            VLOG(2) << "Updating input signal " << update.signal_name << " = " << val << " (string)";
-                        }
-                    }, update.value);
-                    
-                    // Store the typed value
-                    signal_values_[update.signal_name] = update.value;
+                    std::string value_str = VSSTypeHelper::to_string(update.value);
+                    VLOG(2) << "Updating input signal " << update.signal_name << " = " << value_str;
                 } else {
                     // Log invalid/not available status
-                    VLOG(2) << "Updating input signal " << update.signal_name 
-                            << " status=" << (update.status == SignalStatus::Invalid ? "Invalid" : "NotAvailable");
-                    
-                    // Remove from values map (will be nil in Lua)
-                    signal_values_.erase(update.signal_name);
+                    VLOG(2) << "Updating input signal " << update.signal_name
+                            << " status=" << (update.status == vss::types::SignalQuality::INVALID ? "Invalid" : "NotAvailable");
                 }
                 
                 node->last_update = update.timestamp;
@@ -764,7 +780,7 @@ std::vector<VSSSignal> SignalProcessorDAG::process_signal_updates(
                 if (should_output) {
                     vss_signals.push_back(result.value());
                     node->last_output = now;
-                    node->last_output_value = result.value().value;
+                    node->last_output_value = VSSTypeHelper::to_string(result.value().qualified_value.value);
                 }
             }
             node->has_new_data = false;

@@ -352,19 +352,28 @@ std::vector<VSSSignal> VSSStructMapper::process_struct_signals(
                 now - last_time).count();
             
             if (time_since_last >= mapping.interval_ms) {
-                auto struct_value = buffer->get_struct_value();
-                if (struct_value) {
+                auto struct_map = buffer->get_struct_value();
+                if (struct_map) {
+                    // Convert old-style map to StructValue
+                    auto struct_value = std::make_shared<vss::types::StructValue>(mapping.struct_type);
+                    for (const auto& [field_name, field_val] : *struct_map) {
+                        std::visit([&](auto&& val) {
+                            struct_value->set_field(field_name, vss::types::Value(val));
+                        }, field_val);
+                    }
+
                     VSSSignal vss_signal;
                     vss_signal.path = mapping.vss_path;
-                    vss_signal.value_type = "struct";
-                    vss_signal.value = format_struct_value(*struct_value);
-                    
+                    vss_signal.qualified_value.value = struct_value;
+                    vss_signal.qualified_value.quality = vss::types::SignalQuality::VALID;
+                    vss_signal.qualified_value.timestamp = std::chrono::system_clock::now();
+
                     vss_signals.push_back(vss_signal);
                     last_time = now;
-                    
+
                     // Clear buffer after emission
                     buffer->clear();
-                    
+
                     LOG(INFO) << "Emitted struct signal: " << mapping.vss_path;
                 }
             }
@@ -380,16 +389,25 @@ std::vector<VSSSignal> VSSStructMapper::process_struct_signals(
             (mapping.update_policy == StructUpdatePolicy::PARTIAL_BUFFER ||
              mapping.update_policy == StructUpdatePolicy::PARTIAL_DEFAULT)) {
             
-            auto struct_value = buffer->get_struct_value();
-            if (struct_value) {
+            auto struct_map = buffer->get_struct_value();
+            if (struct_map) {
+                // Convert old-style map to StructValue
+                auto struct_value = std::make_shared<vss::types::StructValue>(mapping.struct_type);
+                for (const auto& [field_name, field_val] : *struct_map) {
+                    std::visit([&](auto&& val) {
+                        struct_value->set_field(field_name, vss::types::Value(val));
+                    }, field_val);
+                }
+
                 VSSSignal vss_signal;
                 vss_signal.path = mapping.vss_path;
-                vss_signal.value_type = "struct";
-                vss_signal.value = format_struct_value(*struct_value);
-                
+                vss_signal.qualified_value.value = struct_value;
+                vss_signal.qualified_value.quality = vss::types::SignalQuality::VALID;
+                vss_signal.qualified_value.timestamp = std::chrono::system_clock::now();
+
                 vss_signals.push_back(vss_signal);
                 buffer->clear();
-                
+
                 LOG(INFO) << "Emitted partial struct signal: " << mapping.vss_path;
             }
         }
@@ -424,7 +442,17 @@ std::variant<double, std::string, bool> VSSStructMapper::apply_transform(
         if (result) {
             // Parse the result value as a number
             try {
-                return std::stod(result->value);
+                // Extract the value from qualified_value and convert to double
+                if (auto* d = std::get_if<double>(&result->qualified_value.value)) {
+                    return *d;
+                } else if (auto* f = std::get_if<float>(&result->qualified_value.value)) {
+                    return static_cast<double>(*f);
+                } else if (auto* i = std::get_if<int64_t>(&result->qualified_value.value)) {
+                    return static_cast<double>(*i);
+                } else if (auto* str = std::get_if<std::string>(&result->qualified_value.value)) {
+                    return std::stod(*str);
+                }
+                return can_value;
             } catch (...) {
                 return can_value;
             }

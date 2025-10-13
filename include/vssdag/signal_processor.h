@@ -29,13 +29,10 @@ public:
 private:
     std::unique_ptr<SignalDAG> dag_;
     std::unique_ptr<LuaMapper> lua_mapper_;
-    
-    // Current values for all provided signals
-    std::unordered_map<std::string, std::variant<int64_t, double, std::string>> signal_values_;
-    
-    // Signal status tracking (Valid/Invalid/NotAvailable)
-    std::unordered_map<std::string, SignalStatus> signal_status_;
-    
+
+    // Current qualified values for all provided signals (combines value + quality + timestamp)
+    std::unordered_map<std::string, DynamicQualifiedValue> signal_values_;
+
     // Track last processing time for periodic updates
     std::chrono::steady_clock::time_point last_periodic_check_;
     

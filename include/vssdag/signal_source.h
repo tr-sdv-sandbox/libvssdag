@@ -9,23 +9,18 @@
 #include <functional>
 #include <variant>
 #include <yaml-cpp/yaml.h>
+#include <vss/types/quality.hpp>
+#include <vss/types/value.hpp>
 //#include "base_types.h"
 
 namespace vssdag {
 
-// Signal status for invalid/unavailable detection
-enum class SignalStatus {
-    Valid,        // Normal, valid signal value
-    Invalid,      // Error state (sensor failure, out of range, etc.)
-    NotAvailable  // Not equipped, not ready, no data available
-};
-
 // Signal update with type information preserved
 struct SignalUpdate {
     std::string signal_name;  // Exported signal name
-    std::variant<int64_t, double, std::string> value;  // Typed value (may be dummy when status != Valid)
+    vss::types::Value value;  // VSS typed value
     std::chrono::steady_clock::time_point timestamp;
-    SignalStatus status = SignalStatus::Valid;  // Signal validity status
+    vss::types::SignalQuality status = vss::types::SignalQuality::VALID;  // Signal validity status
 };
 
 class ISignalSource {

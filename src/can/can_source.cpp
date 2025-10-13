@@ -96,21 +96,11 @@ void CANSignalSource::handle_can_frame(const CANFrame& frame) {
             signal_queue_.enqueue(std::move(update));
             
             // Log with type and status info
-            std::visit([&](auto&& val) {
-                using T = std::decay_t<decltype(val)>;
-                const char* status_str = (dbc_update.status == SignalStatus::Valid) ? "valid" :
-                                        (dbc_update.status == SignalStatus::Invalid) ? "invalid" : "not_available";
-                if constexpr (std::is_same_v<T, int64_t>) {
-                    VLOG(3) << "Enqueued signal: " << it->second << " (DBC: " << dbc_update.dbc_signal_name 
-                            << ") = " << val << " (int, " << status_str << ")";
-                } else if constexpr (std::is_same_v<T, double>) {
-                    VLOG(3) << "Enqueued signal: " << it->second << " (DBC: " << dbc_update.dbc_signal_name 
-                            << ") = " << val << " (double, " << status_str << ")";
-                } else {
-                    VLOG(3) << "Enqueued signal: " << it->second << " (DBC: " << dbc_update.dbc_signal_name 
-                            << ") = " << val << " (string, " << status_str << ")";
-                }
-            }, dbc_update.value);
+            const char* status_str = (dbc_update.status == vss::types::SignalQuality::VALID) ? "valid" :
+                                    (dbc_update.status == vss::types::SignalQuality::INVALID) ? "invalid" : "not_available";
+            std::string value_str = VSSTypeHelper::to_string(dbc_update.value);
+            VLOG(3) << "Enqueued signal: " << it->second << " (DBC: " << dbc_update.dbc_signal_name
+                    << ") = " << value_str << " (" << status_str << ")";
         }
     }
 }

@@ -6,7 +6,7 @@
 #include <memory>
 #include <optional>
 #include "vssdag/vss_types.h"
-#include "vssdag/signal_source.h"  // For SignalStatus enum
+#include "vssdag/signal_source.h"
 
 extern "C" {
 #include <lua.h>
@@ -18,9 +18,7 @@ namespace vssdag {
 
 struct VSSSignal {
     std::string path;
-    std::string value_type;
-    std::string value;
-    SignalStatus status = SignalStatus::Valid;  // Signal validity status
+    DynamicQualifiedValue qualified_value;  // Value with quality and timestamp
 };
 
 class LuaMapper {

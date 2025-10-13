@@ -109,7 +109,7 @@ std::unordered_map<std::string, DBCDecodedValue> DBCParser::decode_message(uint3
                     } else {
                         // Shouldn't happen if parse() was successful
                         decoded_value.has_enums = false;
-                        decoded_value.status = SignalStatus::Valid;
+                        decoded_value.status = vss::types::SignalQuality::VALID;
                     }
                     
                     // Determine type based on signal properties
@@ -173,7 +173,7 @@ std::vector<DBCSignalUpdate> DBCParser::decode_message_as_updates(uint32_t can_i
                     } else {
                         // Shouldn't happen if parse() was successful
                         update.has_enums = false;
-                        update.status = SignalStatus::Valid;
+                        update.status = vss::types::SignalQuality::VALID;
                     }
                     
                     // Determine type based on signal properties

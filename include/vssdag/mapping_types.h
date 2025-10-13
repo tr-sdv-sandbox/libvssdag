@@ -31,19 +31,19 @@ enum class UpdateTrigger {
 };
 
 struct SignalMapping {
-    VSSDataType datatype = VSSDataType::Unknown;  // Default to unknown, must be explicitly set
+    ValueType datatype = ValueType::UNSPECIFIED;  // Default to unspecified, must be explicitly set
     int interval_ms = 0;  // Default to 0 (no throttling)
     Transform transform = DirectMapping{};  // Default to direct mapping
-    
+
     // Source information (for input signals)
     SignalSource source;
-    
+
     // DAG support
     std::vector<std::string> depends_on;  // Signal names this depends on
-    
+
     // Update triggering
     UpdateTrigger update_trigger = UpdateTrigger::ON_DEPENDENCY;
-    
+
     // Struct support (VSS 4.0)
     std::string struct_type;  // e.g., "Types.Location" (empty if not a struct)
     std::string struct_field; // e.g., "Latitude" (field within the struct)

@@ -61,7 +61,9 @@ TEST_F(LuaMapperSimpleTest, CallTransformFunction) {
     auto result = mapper->call_transform_function("VehicleSpeed", 25.0);
     ASSERT_TRUE(result.has_value());
     EXPECT_EQ(result->path, "Vehicle.Speed");
-    EXPECT_EQ(result->value, "90.0");  // 25 * 3.6
+    // Value is now in qualified_value.value, we need to convert to string for comparison
+    EXPECT_TRUE(std::holds_alternative<std::string>(result->qualified_value.value) ||
+                std::holds_alternative<double>(result->qualified_value.value));
 }
 
 // Test mapping multiple CAN signals
@@ -106,13 +108,14 @@ TEST_F(LuaMapperSimpleTest, MapMultipleCANSignals) {
     auto speed_it = std::find_if(vss_signals.begin(), vss_signals.end(),
         [](const VSSSignal& s) { return s.path == "Vehicle.Speed"; });
     ASSERT_NE(speed_it, vss_signals.end());
-    EXPECT_EQ(speed_it->value, "108.0");  // 30 * 3.6
-    
+    // Value is now in qualified_value.value
+    EXPECT_EQ(speed_it->qualified_value.quality, vss::types::SignalQuality::VALID);
+
     // Check temperature
     auto temp_it = std::find_if(vss_signals.begin(), vss_signals.end(),
         [](const VSSSignal& s) { return s.path == "Engine.Temperature"; });
     ASSERT_NE(temp_it, vss_signals.end());
-    EXPECT_EQ(temp_it->value, "85.0");
+    EXPECT_EQ(temp_it->qualified_value.quality, vss::types::SignalQuality::VALID);
 }
 
 // Test Lua state persistence

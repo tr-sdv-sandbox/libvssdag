@@ -76,6 +76,19 @@ if(NOT dbcppp_FOUND)
     FetchContent_MakeAvailable(dbcppp)
 endif()
 
+# Find or fetch libvss-types
+find_package(vss-types QUIET)
+if(NOT vss-types_FOUND)
+    message(STATUS "vss-types not found, will fetch from GitHub")
+    include(FetchContent)
+    FetchContent_Declare(
+        vss-types
+        GIT_REPOSITORY https://github.com/tr-sdv-sandbox/libvss-types.git
+        GIT_TAG main
+    )
+    FetchContent_MakeAvailable(vss-types)
+endif()
+
 # Create library with all the core functionality
 if(BUILD_SHARED_LIBS)
     add_library(vssdag SHARED)
@@ -113,6 +126,7 @@ target_link_libraries(vssdag
         yaml-cpp
         nlohmann_json::nlohmann_json
         dbcppp
+        vss::types
         Threads::Threads
 )
 

@@ -129,72 +129,77 @@ bool LuaMapper::execute_mapping_function() {
 
 VSSSignal LuaMapper::extract_vss_signal(int index) {
     VSSSignal signal;
-    
+
     if (!lua_istable(L_, index)) {
         return signal;
     }
-    
+
     // Get path
     lua_getfield(L_, index, "path");
     if (lua_isstring(L_, -1)) {
         signal.path = lua_tostring(L_, -1);
     }
     lua_pop(L_, 1);
-    
-    // Get value type
+
+    // Get value type (for determining how to parse the value)
+    std::string value_type_str;
     lua_getfield(L_, index, "type");
     if (lua_isstring(L_, -1)) {
-        signal.value_type = lua_tostring(L_, -1);
+        value_type_str = lua_tostring(L_, -1);
     } else {
-        signal.value_type = "double"; // Default type
+        value_type_str = "double"; // Default type
     }
     lua_pop(L_, 1);
-    
-    // Get value as string
+
+    // Get value and convert to appropriate VSS Value type
     lua_getfield(L_, index, "value");
     if (lua_type(L_, -1) == LUA_TNUMBER) {
-        std::ostringstream oss;
-        oss << lua_tonumber(L_, -1);
-        signal.value = oss.str();
+        signal.qualified_value.value = lua_tonumber(L_, -1);
     } else if (lua_type(L_, -1) == LUA_TBOOLEAN) {
-        signal.value = lua_toboolean(L_, -1) ? "true" : "false";
+        signal.qualified_value.value = static_cast<bool>(lua_toboolean(L_, -1));
     } else if (lua_type(L_, -1) == LUA_TSTRING) {
-        signal.value = lua_tostring(L_, -1);
+        signal.qualified_value.value = std::string(lua_tostring(L_, -1));
     } else if (lua_type(L_, -1) == LUA_TTABLE) {
         // Handle struct values (Lua tables)
-        if (signal.value_type == "struct" || signal.value_type.find("Types.") == 0) {
+        // Convert to lowercase for case-insensitive comparison
+        std::string value_type_lower = value_type_str;
+        std::transform(value_type_lower.begin(), value_type_lower.end(), value_type_lower.begin(), ::tolower);
+
+        if (value_type_lower == "struct" || value_type_str.find("Types.") == 0) {
             // Convert Lua table to VSS struct with proper type handling
-            VSSDataType vss_type = vss_datatype_from_string(signal.value_type);
-            if (vss_type == VSSDataType::Unknown && signal.value_type == "struct") {
-                vss_type = VSSDataType::Struct;
+            auto vss_type = value_type_from_string(value_type_str);
+            if (!vss_type.has_value() && value_type_lower == "struct") {
+                vss_type = ValueType::STRUCT;
             }
-            VSSValue vss_value = VSSTypeHelper::from_lua_table_typed(L_, -1, vss_type);
-            signal.value = VSSTypeHelper::to_json(vss_value);
+            signal.qualified_value.value = VSSTypeHelper::from_lua_table_typed(L_, -1, vss_type.value_or(ValueType::STRUCT));
         } else {
-            // Unknown table type, use JSON representation
-            signal.value = "{}";  // Placeholder for now
+            // Unknown table type, use empty monostate
+            signal.qualified_value.value = std::monostate{};
         }
     } else if (lua_type(L_, -1) == LUA_TNIL) {
-        // For nil values, indicate no data available
-        signal.value = "N/A";
+        // For nil values, use empty monostate
+        signal.qualified_value.value = std::monostate{};
     }
     lua_pop(L_, 1);
-    
-    // Get status
+
+    // Get quality (formerly status)
     lua_getfield(L_, index, "status");
     if (lua_isinteger(L_, -1)) {
         int status_val = lua_tointeger(L_, -1);
-        signal.status = static_cast<SignalStatus>(status_val);
+        signal.qualified_value.quality = static_cast<SignalQuality>(status_val);
     } else if (lua_isnumber(L_, -1)) {
         // Handle as number if not specifically integer
         int status_val = static_cast<int>(lua_tonumber(L_, -1));
-        signal.status = static_cast<SignalStatus>(status_val);
+        signal.qualified_value.quality = static_cast<SignalQuality>(status_val);
     } else {
         // Default to valid if no status field or wrong type
-        signal.status = SignalStatus::Valid;
+        signal.qualified_value.quality = SignalQuality::VALID;
     }
     lua_pop(L_, 1);
-    
+
+    // Set timestamp to current time
+    signal.qualified_value.timestamp = std::chrono::system_clock::now();
+
     return signal;
 }
 
@@ -252,74 +257,79 @@ std::optional<VSSSignal> LuaMapper::extract_vss_signal_from_stack() {
     if (!lua_istable(L_, -1)) {
         return std::nullopt;
     }
-    
+
     VSSSignal signal;
-    
+
     // Get path
     lua_getfield(L_, -1, "path");
     if (lua_isstring(L_, -1)) {
         signal.path = lua_tostring(L_, -1);
     }
     lua_pop(L_, 1);
-    
+
     if (signal.path.empty()) {
         return std::nullopt;
     }
-    
-    // Get value type
+
+    // Get value type (for determining how to parse the value)
+    std::string value_type_str;
     lua_getfield(L_, -1, "type");
     if (lua_isstring(L_, -1)) {
-        signal.value_type = lua_tostring(L_, -1);
+        value_type_str = lua_tostring(L_, -1);
     } else {
-        signal.value_type = "double";
+        value_type_str = "double";
     }
     lua_pop(L_, 1);
-    
-    // Get value as string
+
+    // Get value and convert to appropriate VSS Value type
     lua_getfield(L_, -1, "value");
     if (lua_type(L_, -1) == LUA_TNUMBER) {
-        std::ostringstream oss;
-        oss << lua_tonumber(L_, -1);
-        signal.value = oss.str();
+        signal.qualified_value.value = lua_tonumber(L_, -1);
     } else if (lua_type(L_, -1) == LUA_TBOOLEAN) {
-        signal.value = lua_toboolean(L_, -1) ? "true" : "false";
+        signal.qualified_value.value = static_cast<bool>(lua_toboolean(L_, -1));
     } else if (lua_type(L_, -1) == LUA_TSTRING) {
-        signal.value = lua_tostring(L_, -1);
+        signal.qualified_value.value = std::string(lua_tostring(L_, -1));
     } else if (lua_type(L_, -1) == LUA_TTABLE) {
         // Handle struct values (Lua tables)
-        if (signal.value_type == "struct" || signal.value_type.find("Types.") == 0) {
+        // Convert to lowercase for case-insensitive comparison
+        std::string value_type_lower = value_type_str;
+        std::transform(value_type_lower.begin(), value_type_lower.end(), value_type_lower.begin(), ::tolower);
+
+        if (value_type_lower == "struct" || value_type_str.find("Types.") == 0) {
             // Convert Lua table to VSS struct with proper type handling
-            VSSDataType vss_type = vss_datatype_from_string(signal.value_type);
-            if (vss_type == VSSDataType::Unknown && signal.value_type == "struct") {
-                vss_type = VSSDataType::Struct;
+            auto vss_type = value_type_from_string(value_type_str);
+            if (!vss_type.has_value() && value_type_lower == "struct") {
+                vss_type = ValueType::STRUCT;
             }
-            VSSValue vss_value = VSSTypeHelper::from_lua_table_typed(L_, -1, vss_type);
-            signal.value = VSSTypeHelper::to_json(vss_value);
+            signal.qualified_value.value = VSSTypeHelper::from_lua_table_typed(L_, -1, vss_type.value_or(ValueType::STRUCT));
         } else {
-            // Unknown table type, use JSON representation
-            signal.value = "{}";  // Placeholder for now
+            // Unknown table type, use empty monostate
+            signal.qualified_value.value = std::monostate{};
         }
     } else if (lua_type(L_, -1) == LUA_TNIL) {
-        // For nil values, indicate no data available
-        signal.value = "N/A";
+        // For nil values, use empty monostate
+        signal.qualified_value.value = std::monostate{};
     }
     lua_pop(L_, 1);
-    
-    // Get status
+
+    // Get quality (formerly status)
     lua_getfield(L_, -1, "status");
     if (lua_isinteger(L_, -1)) {
         int status_val = lua_tointeger(L_, -1);
-        signal.status = static_cast<SignalStatus>(status_val);
+        signal.qualified_value.quality = static_cast<SignalQuality>(status_val);
     } else if (lua_isnumber(L_, -1)) {
         // Handle as number if not specifically integer
         int status_val = static_cast<int>(lua_tonumber(L_, -1));
-        signal.status = static_cast<SignalStatus>(status_val);
+        signal.qualified_value.quality = static_cast<SignalQuality>(status_val);
     } else {
         // Default to valid if no status field or wrong type
-        signal.status = SignalStatus::Valid;
+        signal.qualified_value.quality = SignalQuality::VALID;
     }
     lua_pop(L_, 1);
-    
+
+    // Set timestamp to current time
+    signal.qualified_value.timestamp = std::chrono::system_clock::now();
+
     return signal;
 }
 

@@ -76,17 +76,21 @@ int main(int argc, char* argv[]) {
         // Parse datatype - no default, must be specified
         if (mapping_node["datatype"]) {
             std::string datatype_str = mapping_node["datatype"].as<std::string>();
-            mapping.datatype = vss_datatype_from_string(datatype_str);
-            if (mapping.datatype == VSSDataType::Unknown) {
+            auto datatype_opt = value_type_from_string(datatype_str);
+            if (datatype_opt.has_value()) {
+                mapping.datatype = *datatype_opt;
+            } else {
                 LOG(WARNING) << "Unknown datatype '" << datatype_str << "' for signal " << signal_name;
+                mapping.datatype = ValueType::UNSPECIFIED;
             }
         } else {
-            LOG(WARNING) << "No datatype specified for signal " << signal_name << ", using Unknown";
+            LOG(WARNING) << "No datatype specified for signal " << signal_name << ", using UNSPECIFIED";
+            mapping.datatype = ValueType::UNSPECIFIED;
         }
         mapping.interval_ms = mapping_node["interval_ms"].as<int>(0);
-        
+
         // Check if this is a struct type
-        if (mapping.datatype == VSSDataType::Struct) {
+        if (mapping.datatype == ValueType::STRUCT) {
             mapping.is_struct = true;
             if (mapping_node["struct_type"]) {
                 mapping.struct_type = mapping_node["struct_type"].as<std::string>();

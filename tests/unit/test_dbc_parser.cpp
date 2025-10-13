@@ -156,22 +156,22 @@ TEST_F(DBCParserTest, DecodeMessage) {
     ASSERT_NE(signals.find("Speed"), signals.end());
     ASSERT_TRUE(std::holds_alternative<double>(signals["Speed"].value));
     EXPECT_NEAR(std::get<double>(signals["Speed"].value), 100.0, 0.1);
-    EXPECT_EQ(signals["Speed"].status, SignalStatus::Valid);
-    
+    EXPECT_EQ(signals["Speed"].status, vss::types::SignalQuality::VALID);
+
     // Check Temperature signal (has offset of -40, so it's a double)
     ASSERT_NE(signals.find("Temperature"), signals.end());
     ASSERT_TRUE(std::holds_alternative<double>(signals["Temperature"].value));
     EXPECT_NEAR(std::get<double>(signals["Temperature"].value), 25.0, 0.1);
-    EXPECT_EQ(signals["Temperature"].status, SignalStatus::Valid);
+    EXPECT_EQ(signals["Temperature"].status, vss::types::SignalQuality::VALID);
     
     // Check Status signal (with enum)
     ASSERT_NE(signals.find("Status"), signals.end());
     EXPECT_TRUE(signals["Status"].has_enums);
-    EXPECT_EQ(signals["Status"].status, SignalStatus::Valid);
-    
+    EXPECT_EQ(signals["Status"].status, vss::types::SignalQuality::VALID);
+
     // Check ErrorCode signal
     ASSERT_NE(signals.find("ErrorCode"), signals.end());
-    EXPECT_EQ(signals["ErrorCode"].status, SignalStatus::Valid);
+    EXPECT_EQ(signals["ErrorCode"].status, vss::types::SignalQuality::VALID);
 }
 
 // Test decoding with decode_message_as_updates
@@ -198,7 +198,7 @@ TEST_F(DBCParserTest, DecodeMessageAsUpdates) {
     ASSERT_NE(speed_it, updates.end());
     ASSERT_TRUE(std::holds_alternative<double>(speed_it->value));
     EXPECT_NEAR(std::get<double>(speed_it->value), 100.0, 0.1);
-    EXPECT_EQ(speed_it->status, SignalStatus::Valid);
+    EXPECT_EQ(speed_it->status, vss::types::SignalQuality::VALID);
 }
 
 // Test decoding with invalid message ID
@@ -261,12 +261,12 @@ TEST_F(DBCParserTest, InvalidValueDetection) {
     
     // ErrorCode should be marked as invalid
     ASSERT_NE(signals.find("ErrorCode"), signals.end());
-    EXPECT_EQ(signals["ErrorCode"].status, SignalStatus::Invalid);
-    
+    EXPECT_EQ(signals["ErrorCode"].status, vss::types::SignalQuality::INVALID);
+
     // Other signals should remain valid
-    EXPECT_EQ(signals["Speed"].status, SignalStatus::Valid);
-    EXPECT_EQ(signals["Temperature"].status, SignalStatus::Valid);
-    EXPECT_EQ(signals["Status"].status, SignalStatus::Valid);
+    EXPECT_EQ(signals["Speed"].status, vss::types::SignalQuality::VALID);
+    EXPECT_EQ(signals["Temperature"].status, vss::types::SignalQuality::VALID);
+    EXPECT_EQ(signals["Status"].status, vss::types::SignalQuality::VALID);
 }
 
 // Test not-available value detection (0xFE pattern)
@@ -287,12 +287,12 @@ TEST_F(DBCParserTest, NotAvailableValueDetection) {
     
     // ErrorCode should be marked as not available
     ASSERT_NE(signals.find("ErrorCode"), signals.end());
-    EXPECT_EQ(signals["ErrorCode"].status, SignalStatus::NotAvailable);
-    
+    EXPECT_EQ(signals["ErrorCode"].status, vss::types::SignalQuality::NOT_AVAILABLE);
+
     // Other signals should remain valid
-    EXPECT_EQ(signals["Speed"].status, SignalStatus::Valid);
-    EXPECT_EQ(signals["Temperature"].status, SignalStatus::Valid);
-    EXPECT_EQ(signals["Status"].status, SignalStatus::Valid);
+    EXPECT_EQ(signals["Speed"].status, vss::types::SignalQuality::VALID);
+    EXPECT_EQ(signals["Temperature"].status, vss::types::SignalQuality::VALID);
+    EXPECT_EQ(signals["Status"].status, vss::types::SignalQuality::VALID);
 }
 
 // Test signal with full bit range (no room for invalid/NA patterns)
@@ -308,15 +308,15 @@ TEST_F(DBCParserTest, FullRangeSignal) {
     ASSERT_NE(signals.find("FullRange"), signals.end());
     ASSERT_TRUE(std::holds_alternative<int64_t>(signals["FullRange"].value));
     EXPECT_EQ(std::get<int64_t>(signals["FullRange"].value), 255);
-    EXPECT_EQ(signals["FullRange"].status, SignalStatus::Valid);  // Should be valid, not invalid
-    
+    EXPECT_EQ(signals["FullRange"].status, vss::types::SignalQuality::VALID);  // Should be valid, not invalid
+
     std::vector<uint8_t> data_fe = {0xFE, 0x00};  // FullRange = 254
     signals = parser.decode_message(768, data_fe.data(), data_fe.size());
-    
+
     ASSERT_NE(signals.find("FullRange"), signals.end());
     ASSERT_TRUE(std::holds_alternative<int64_t>(signals["FullRange"].value));
     EXPECT_EQ(std::get<int64_t>(signals["FullRange"].value), 254);
-    EXPECT_EQ(signals["FullRange"].status, SignalStatus::Valid);  // Should be valid, not NA
+    EXPECT_EQ(signals["FullRange"].status, vss::types::SignalQuality::VALID);  // Should be valid, not NA
 }
 
 // Test out-of-range detection
@@ -369,21 +369,21 @@ TEST_F(DBCParserTest, StatusPropagationInUpdates) {
     // Check each signal's status
     for (const auto& update : updates) {
         if (std::string(update.dbc_signal_name) == "ErrorCode") {
-            EXPECT_EQ(update.status, SignalStatus::Invalid);
+            EXPECT_EQ(update.status, vss::types::SignalQuality::INVALID);
         } else {
-            EXPECT_EQ(update.status, SignalStatus::Valid);
+            EXPECT_EQ(update.status, vss::types::SignalQuality::VALID);
         }
     }
-    
+
     // Now test with NA value
     data[4] = 0xFE;  // ErrorCode: 254 (not available)
     updates = parser.decode_message_as_updates(256, data.data(), data.size());
-    
+
     for (const auto& update : updates) {
         if (std::string(update.dbc_signal_name) == "ErrorCode") {
-            EXPECT_EQ(update.status, SignalStatus::NotAvailable);
+            EXPECT_EQ(update.status, vss::types::SignalQuality::NOT_AVAILABLE);
         } else {
-            EXPECT_EQ(update.status, SignalStatus::Valid);
+            EXPECT_EQ(update.status, vss::types::SignalQuality::VALID);
         }
     }
 }
@@ -398,12 +398,12 @@ TEST_F(DBCParserTest, VariousBitSizePatterns) {
     std::vector<uint8_t> data = {0x0F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};  // 4-bit = 15
     auto signals = parser.decode_message(1024, data.data(), data.size());
     ASSERT_NE(signals.find("Signal4Bit"), signals.end());
-    EXPECT_EQ(signals["Signal4Bit"].status, SignalStatus::Invalid);
-    
+    EXPECT_EQ(signals["Signal4Bit"].status, vss::types::SignalQuality::INVALID);
+
     data[0] = 0x0E;  // 4-bit = 14
     signals = parser.decode_message(1024, data.data(), data.size());
     ASSERT_NE(signals.find("Signal4Bit"), signals.end());
-    EXPECT_EQ(signals["Signal4Bit"].status, SignalStatus::NotAvailable);
+    EXPECT_EQ(signals["Signal4Bit"].status, vss::types::SignalQuality::NOT_AVAILABLE);
     
     // Clean up
     std::remove("test_extended.dbc");

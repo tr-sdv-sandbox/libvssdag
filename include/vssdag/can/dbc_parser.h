@@ -60,20 +60,20 @@ private:
         double max_physical;            // Max valid physical value from DBC
         
         // Quick inline status check
-        SignalStatus check_status(uint64_t raw_value, double physical_value) const {
+        vss::types::SignalQuality check_status(uint64_t raw_value, double physical_value) const {
             // Check for invalid pattern
             if (can_use_invalid_pattern && raw_value == invalid_raw_value) {
-                return SignalStatus::Invalid;
+                return vss::types::SignalQuality::INVALID;
             }
             // Check for NA pattern
             if (can_use_na_pattern && raw_value == na_raw_value) {
-                return SignalStatus::NotAvailable;
+                return vss::types::SignalQuality::NOT_AVAILABLE;
             }
             // Check if physical value is out of range
             if (physical_value < min_physical || physical_value > max_physical) {
-                return SignalStatus::Invalid;
+                return vss::types::SignalQuality::INVALID;
             }
-            return SignalStatus::Valid;
+            return vss::types::SignalQuality::VALID;
         }
     };
     

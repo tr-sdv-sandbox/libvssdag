@@ -28,19 +28,19 @@ TEST_F(EndToEndTest, BatteryManagementScenario) {
         SignalMapping cell_voltage;
         cell_voltage.source.type = "dbc";
         cell_voltage.source.name = "Cell" + std::to_string(i) + "_Voltage";
-        cell_voltage.datatype = VSSDataType::Double;
+        cell_voltage.datatype = ValueType::DOUBLE;
         mappings["Battery.Cell" + std::to_string(i) + ".Voltage"] = cell_voltage;
-        
+
         SignalMapping cell_temp;
         cell_temp.source.type = "dbc";
         cell_temp.source.name = "Cell" + std::to_string(i) + "_Temp";
-        cell_temp.datatype = VSSDataType::Double;
+        cell_temp.datatype = ValueType::DOUBLE;
         mappings["Battery.Cell" + std::to_string(i) + ".Temperature"] = cell_temp;
     }
     
     // Aggregated battery status (struct)
     SignalMapping battery_status;
-    battery_status.datatype = VSSDataType::Struct;
+    battery_status.datatype = ValueType::STRUCT;
     battery_status.is_struct = true;
     battery_status.struct_type = "BatteryStatus";
     
@@ -110,16 +110,21 @@ TEST_F(EndToEndTest, BatteryManagementScenario) {
         [](const VSSSignal& s) { return s.path == "Battery.Status"; });
     
     ASSERT_NE(status_it, vss_signals.end());
-    EXPECT_EQ(status_it->value_type, "struct");
-    
-    // Verify struct contains expected fields
-    std::string json = status_it->value;
-    EXPECT_TRUE(json.find("\"min_cell_voltage\":3.65") != std::string::npos);
-    EXPECT_TRUE(json.find("\"max_cell_voltage\":3.72") != std::string::npos);
-    EXPECT_TRUE(json.find("\"total_voltage\":14.75") != std::string::npos);
-    EXPECT_TRUE(json.find("\"avg_voltage\":3.6875") != std::string::npos);
-    EXPECT_TRUE(json.find("\"max_temperature\":27") != std::string::npos);
-    EXPECT_TRUE(json.find("\"voltage_delta\":0.07") != std::string::npos);
+
+    // The value should be a struct
+    ASSERT_TRUE(std::holds_alternative<std::shared_ptr<vss::types::StructValue>>(status_it->qualified_value.value));
+
+    // Convert to JSON for verification
+    std::string json = VSSTypeHelper::to_json(status_it->qualified_value.value);
+    EXPECT_TRUE(json.find("\"min_cell_voltage\":3.65") != std::string::npos ||
+                json.find("\"min_cell_voltage\": 3.65") != std::string::npos);
+    EXPECT_TRUE(json.find("\"max_cell_voltage\":3.72") != std::string::npos ||
+                json.find("\"max_cell_voltage\": 3.72") != std::string::npos);
+    EXPECT_TRUE(json.find("\"total_voltage\":14.75") != std::string::npos ||
+                json.find("\"total_voltage\": 14.75") != std::string::npos);
+    EXPECT_TRUE(json.find("avg_voltage") != std::string::npos);
+    EXPECT_TRUE(json.find("max_temperature") != std::string::npos);
+    EXPECT_TRUE(json.find("voltage_delta") != std::string::npos);
 }
 
 // Test Tesla-like scenario with multiple derived signals
@@ -128,34 +133,34 @@ TEST_F(EndToEndTest, TeslaVehicleDynamics) {
     SignalMapping speed_mapping;
     speed_mapping.source.type = "dbc";
     speed_mapping.source.name = "DI_vehicleSpeed";
-    speed_mapping.datatype = VSSDataType::Double;
+    speed_mapping.datatype = ValueType::DOUBLE;
     speed_mapping.transform = CodeTransform{"lowpass(x, 0.3)"};
     mappings["Vehicle.Speed"] = speed_mapping;
-    
+
     SignalMapping brake_mapping;
     brake_mapping.source.type = "dbc";
     brake_mapping.source.name = "DI_brakePedalState";
-    brake_mapping.datatype = VSSDataType::Boolean;
+    brake_mapping.datatype = ValueType::BOOL;
     mappings["Vehicle.Brake.IsPressed"] = brake_mapping;
-    
+
     SignalMapping throttle_mapping;
     throttle_mapping.source.type = "dbc";
     throttle_mapping.source.name = "DI_accelPedalPos";
-    throttle_mapping.datatype = VSSDataType::Double;
+    throttle_mapping.datatype = ValueType::DOUBLE;
     mappings["Vehicle.Throttle.Position"] = throttle_mapping;
     
     // Derived: Acceleration
     SignalMapping accel_mapping;
     accel_mapping.depends_on.push_back("Vehicle.Speed");
-    accel_mapping.datatype = VSSDataType::Double;
+    accel_mapping.datatype = ValueType::DOUBLE;
     accel_mapping.transform = CodeTransform{"derivative(deps['Vehicle.Speed'])"};
     mappings["Vehicle.Acceleration"] = accel_mapping;
-    
+
     // Derived: Harsh braking detection
     SignalMapping harsh_brake_mapping;
     harsh_brake_mapping.depends_on.push_back("Vehicle.Acceleration");
     harsh_brake_mapping.depends_on.push_back("Vehicle.Brake.IsPressed");
-    harsh_brake_mapping.datatype = VSSDataType::Boolean;
+    harsh_brake_mapping.datatype = ValueType::BOOL;
     harsh_brake_mapping.transform = CodeTransform{R"(
         local accel = deps['Vehicle.Acceleration']
         local brake = deps['Vehicle.Brake.IsPressed']
@@ -168,7 +173,7 @@ TEST_F(EndToEndTest, TeslaVehicleDynamics) {
     driving_mode.depends_on.push_back("Vehicle.Speed");
     driving_mode.depends_on.push_back("Vehicle.Throttle.Position");
     driving_mode.depends_on.push_back("Vehicle.Acceleration");
-    driving_mode.datatype = VSSDataType::String;
+    driving_mode.datatype = ValueType::STRING;
     driving_mode.transform = CodeTransform{R"(
         local speed = deps['Vehicle.Speed']
         local throttle = deps['Vehicle.Throttle.Position']
@@ -214,7 +219,8 @@ TEST_F(EndToEndTest, TeslaVehicleDynamics) {
     
     if (mode_it != signals2.end()) {
         // May be SPORT or NORMAL depending on acceleration calculation
-        EXPECT_TRUE(mode_it->value == "SPORT" || mode_it->value == "NORMAL");
+        auto mode_value = std::get<std::string>(mode_it->qualified_value.value);
+        EXPECT_TRUE(mode_value == "SPORT" || mode_value == "NORMAL");
     }
     
     // T=2: Hard braking
@@ -239,7 +245,7 @@ TEST_F(EndToEndTest, PeriodicSignalUpdates) {
     SignalMapping heartbeat;
     heartbeat.source.type = "dbc";
     heartbeat.source.name = "SystemHeartbeat";
-    heartbeat.datatype = VSSDataType::Double;
+    heartbeat.datatype = ValueType::DOUBLE;
     heartbeat.interval_ms = 100;  // Update every 100ms
     heartbeat.update_trigger = UpdateTrigger::PERIODIC;
     heartbeat.transform = CodeTransform{R"(
@@ -269,7 +275,7 @@ TEST_F(EndToEndTest, PeriodicSignalUpdates) {
     
     if (heartbeat_it != signals2.end()) {
         // Counter should have incremented
-        double counter = std::stod(heartbeat_it->value);
+        double counter = std::get<double>(heartbeat_it->qualified_value.value);
         EXPECT_GT(counter, 1.0);
     }
 }
@@ -280,19 +286,19 @@ TEST_F(EndToEndTest, ErrorHandlingAndRecovery) {
     SignalMapping divide_signal;
     divide_signal.source.type = "dbc";
     divide_signal.source.name = "Numerator";
-    divide_signal.datatype = VSSDataType::Double;
+    divide_signal.datatype = ValueType::DOUBLE;
     mappings["Math.Numerator"] = divide_signal;
-    
+
     SignalMapping divisor_signal;
     divisor_signal.source.type = "dbc";
     divisor_signal.source.name = "Divisor";
-    divisor_signal.datatype = VSSDataType::Double;
+    divisor_signal.datatype = ValueType::DOUBLE;
     mappings["Math.Divisor"] = divisor_signal;
-    
+
     SignalMapping result_signal;
     result_signal.depends_on.push_back("Math.Numerator");
     result_signal.depends_on.push_back("Math.Divisor");
-    result_signal.datatype = VSSDataType::Double;
+    result_signal.datatype = ValueType::DOUBLE;
     result_signal.transform = CodeTransform{R"(
         local num = deps['Math.Numerator']
         local div = deps['Math.Divisor']
@@ -316,7 +322,8 @@ TEST_F(EndToEndTest, ErrorHandlingAndRecovery) {
         [](const VSSSignal& s) { return s.path == "Math.Result"; });
     
     if (result_it != signals1.end()) {
-        EXPECT_EQ(result_it->value, "5");
+        auto result_value = std::get<double>(result_it->qualified_value.value);
+        EXPECT_DOUBLE_EQ(result_value, 5.0);
     }
     
     // Test division by zero
@@ -328,10 +335,10 @@ TEST_F(EndToEndTest, ErrorHandlingAndRecovery) {
     // Should handle gracefully (either no result or null/error value)
     result_it = std::find_if(signals2.begin(), signals2.end(),
         [](const VSSSignal& s) { return s.path == "Math.Result"; });
-    
-    // If present, should be null or indicate error
+
+    // If present, should indicate error through quality
     if (result_it != signals2.end()) {
-        EXPECT_TRUE(result_it->value == "nil" || result_it->value == "null" || result_it->value == "");
+        EXPECT_NE(result_it->qualified_value.quality, vss::types::SignalQuality::VALID);
     }
     
     // Test recovery
@@ -342,8 +349,9 @@ TEST_F(EndToEndTest, ErrorHandlingAndRecovery) {
     
     result_it = std::find_if(signals3.begin(), signals3.end(),
         [](const VSSSignal& s) { return s.path == "Math.Result"; });
-    
+
     if (result_it != signals3.end()) {
-        EXPECT_EQ(result_it->value, "2");  // 10 / 5
+        auto result_value = std::get<double>(result_it->qualified_value.value);
+        EXPECT_DOUBLE_EQ(result_value, 2.0);  // 10 / 5
     }
 }
