@@ -84,7 +84,7 @@ if(NOT vss-types_FOUND)
     FetchContent_Declare(
         vss-types
         GIT_REPOSITORY https://github.com/tr-sdv-sandbox/libvss-types.git
-        GIT_TAG main
+        GIT_TAG v0.0.1
     )
     FetchContent_MakeAvailable(vss-types)
 endif()
