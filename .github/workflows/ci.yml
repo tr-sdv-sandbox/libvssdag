@@ -36,34 +36,15 @@ jobs:
             libxml2-dev \
             pkg-config
 
-      - name: Install libvss-types v0.0.1
-        run: |
-          # Clone and build libvss-types
-          git clone --depth 1 --branch v0.0.1 https://github.com/tr-sdv-sandbox/libvss-types.git /tmp/libvss-types
-          cd /tmp/libvss-types
-          mkdir -p build && cd build
-          cmake -DCMAKE_BUILD_TYPE=Release \
-                -DVSS_TYPES_BUILD_TESTS=OFF \
-                -DVSS_TYPES_BUILD_EXAMPLES=OFF \
-                ..
-          make -j$(nproc)
-          sudo make install
-          sudo ldconfig
-
-          # Verify installation
-          echo "Checking libvss-types installation..."
-          ls -la /usr/local/lib/cmake/vss-types/ || echo "CMake config not found"
-          ls -la /usr/local/include/vss/types/ || echo "Headers not found"
-
       - name: Configure
         run: |
           mkdir -p build
           cd build
+          # Let CMake fetch libvss-types via FetchContent
           cmake -DCMAKE_BUILD_TYPE=Release \
                 -DBUILD_TESTS=ON \
                 -DBUILD_INTEGRATION_TESTS=ON \
                 -DBUILD_EXAMPLES=ON \
-                -DCMAKE_PREFIX_PATH=/usr/local \
                 ..
 
       - name: Build
