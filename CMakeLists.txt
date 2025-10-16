@@ -26,15 +26,8 @@ find_package(nlohmann_json REQUIRED)
 # Find yaml-cpp (required)
 find_package(yaml-cpp REQUIRED)
 
-# Fetch moodycamel concurrent queue
-message(STATUS "Fetching moodycamel::ConcurrentQueue")
-include(FetchContent)
-FetchContent_Declare(
-    moodycamel
-    GIT_REPOSITORY https://github.com/cameron314/concurrentqueue.git
-    GIT_TAG v1.0.4
-)
-FetchContent_MakeAvailable(moodycamel)
+# Find concurrentqueue (moodycamel) - required
+find_package(concurrentqueue REQUIRED)
 
 # Find Google Test if tests are enabled
 if(BUILD_TESTS OR BUILD_INTEGRATION_TESTS)
@@ -99,8 +92,6 @@ target_include_directories(vssdag
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:include>
         ${LUA_INCLUDE_DIR}
-        $<BUILD_INTERFACE:${moodycamel_SOURCE_DIR}>
-        $<INSTALL_INTERFACE:include/concurrentqueue>
 )
 
 # Link library dependencies
@@ -112,6 +103,7 @@ target_link_libraries(vssdag
         nlohmann_json::nlohmann_json
         vss::types
         Threads::Threads
+        concurrentqueue::concurrentqueue
     PRIVATE
         dbcppp
 )

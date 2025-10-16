@@ -6,7 +6,7 @@
 #include <atomic>
 #include <unordered_set>
 #include <unordered_map>
-#include <concurrentqueue.h>
+#include <moodycamel/concurrentqueue.h>
 #include "vssdag/signal_source.h"
 #include "vssdag/can/can_reader.h"
 #include "vssdag/can/dbc_parser.h"

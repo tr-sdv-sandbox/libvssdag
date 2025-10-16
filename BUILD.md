@@ -22,7 +22,20 @@ sudo apt-get install -y \
 
 ## Build and Install Required Dependencies
 
-### 1. Build and Install dbcppp
+### 1. Build and Install concurrentqueue
+
+```bash
+cd /tmp
+git clone --depth 1 https://github.com/cameron314/concurrentqueue.git
+cd concurrentqueue
+mkdir -p build && cd build
+cmake -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_INSTALL_PREFIX=/usr/local \
+      ..
+sudo cmake --install .
+```
+
+### 2. Build and Install dbcppp
 
 ```bash
 cd /tmp
@@ -41,7 +54,7 @@ sudo make install
 sudo ldconfig
 ```
 
-### 2. Build and Install libvss-types
+### 3. Build and Install libvss-types
 
 ```bash
 cd /tmp
