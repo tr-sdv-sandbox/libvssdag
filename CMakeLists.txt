@@ -117,6 +117,7 @@ target_include_directories(vssdag
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:include>
         ${LUA_INCLUDE_DIR}
+    PRIVATE
         ${moodycamel_SOURCE_DIR}
 )
 
@@ -127,9 +128,10 @@ target_link_libraries(vssdag
         ${LUA_LIBRARIES}
         yaml-cpp
         nlohmann_json::nlohmann_json
-        dbcppp
         vss::types
         Threads::Threads
+    PRIVATE
+        dbcppp
 )
 
 # Add subdirectories
