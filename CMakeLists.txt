@@ -99,8 +99,8 @@ target_include_directories(vssdag
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:include>
         ${LUA_INCLUDE_DIR}
-    PRIVATE
-        ${moodycamel_SOURCE_DIR}
+        $<BUILD_INTERFACE:${moodycamel_SOURCE_DIR}>
+        $<INSTALL_INTERFACE:include/concurrentqueue>
 )
 
 # Link library dependencies
