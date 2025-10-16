@@ -11,3 +11,7 @@ find_dependency(glog)
 find_dependency(Lua)
 find_dependency(yaml-cpp)
 find_dependency(nlohmann_json)
+find_dependency(vss-types)
+
+# dbcppp is typically found via pkg-config or cmake
+find_dependency(dbcppp)

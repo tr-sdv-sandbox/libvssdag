@@ -145,6 +145,9 @@ endif()
 # Installation
 include(GNUInstallDirs)
 
+# Set the export name to create vssdag::vssdag target (must be before install)
+set_target_properties(vssdag PROPERTIES EXPORT_NAME vssdag)
+
 # Install library
 install(TARGETS vssdag
     EXPORT vssdag-targets
@@ -159,31 +162,29 @@ install(DIRECTORY include/vssdag
 )
 
 # Install CMake config files
-# TODO: Fix export to handle fetched dependencies properly
-# install(EXPORT vssdag-targets
-#     FILE vssdagTargets.cmake
-#     NAMESPACE vssdag::
-#     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/vssdag
-# )
+install(EXPORT vssdag-targets
+    FILE vssdagTargets.cmake
+    NAMESPACE vssdag::
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/vssdag
+)
 
-# For now, comment out the export/install until dependencies are properly handled
-# # Create and install package config file
-# include(CMakePackageConfigHelpers)
-# configure_package_config_file(
-#     ${CMAKE_CURRENT_SOURCE_DIR}/cmake/vssdagConfig.cmake.in
-#     ${CMAKE_CURRENT_BINARY_DIR}/vssdagConfig.cmake
-#     INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/vssdag
-# )
+# Create and install package config file
+include(CMakePackageConfigHelpers)
+configure_package_config_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/vssdagConfig.cmake.in
+    ${CMAKE_CURRENT_BINARY_DIR}/vssdagConfig.cmake
+    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/vssdag
+)
 
-# write_basic_package_version_file(
-#     ${CMAKE_CURRENT_BINARY_DIR}/vssdagConfigVersion.cmake
-#     VERSION ${PROJECT_VERSION}
-#     COMPATIBILITY SameMajorVersion
-# )
+write_basic_package_version_file(
+    ${CMAKE_CURRENT_BINARY_DIR}/vssdagConfigVersion.cmake
+    VERSION ${PROJECT_VERSION}
+    COMPATIBILITY SameMajorVersion
+)
 
-# install(FILES
-#     ${CMAKE_CURRENT_BINARY_DIR}/vssdagConfig.cmake
-#     ${CMAKE_CURRENT_BINARY_DIR}/vssdagConfigVersion.cmake
-#     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/vssdag
-# )
+install(FILES
+    ${CMAKE_CURRENT_BINARY_DIR}/vssdagConfig.cmake
+    ${CMAKE_CURRENT_BINARY_DIR}/vssdagConfigVersion.cmake
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/vssdag
+)
 
