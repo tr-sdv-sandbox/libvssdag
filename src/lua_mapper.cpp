@@ -141,37 +141,53 @@ VSSSignal LuaMapper::extract_vss_signal(int index) {
     }
     lua_pop(L_, 1);
 
-    // Get value type (for determining how to parse the value)
-    std::string value_type_str;
+    // Get value type (stored as integer ValueType enum)
+    ValueType value_type = ValueType::DOUBLE;  // Default
     lua_getfield(L_, index, "type");
-    if (lua_isstring(L_, -1)) {
-        value_type_str = lua_tostring(L_, -1);
-    } else {
-        value_type_str = "double"; // Default type
+    if (lua_isinteger(L_, -1)) {
+        value_type = static_cast<ValueType>(lua_tointeger(L_, -1));
+    } else if (lua_isnumber(L_, -1)) {
+        value_type = static_cast<ValueType>(static_cast<int>(lua_tonumber(L_, -1)));
     }
     lua_pop(L_, 1);
 
-    // Get value and convert to appropriate VSS Value type
+    // Get value and convert to appropriate VSS Value type based on enum
     lua_getfield(L_, index, "value");
     if (lua_type(L_, -1) == LUA_TNUMBER) {
-        signal.qualified_value.value = lua_tonumber(L_, -1);
+        // Use the ValueType enum to determine the correct C++ type
+        switch (value_type) {
+            case ValueType::FLOAT:
+                signal.qualified_value.value = static_cast<float>(lua_tonumber(L_, -1));
+                break;
+            case ValueType::DOUBLE:
+                signal.qualified_value.value = lua_tonumber(L_, -1);
+                break;
+            case ValueType::INT32:
+                signal.qualified_value.value = static_cast<int32_t>(lua_tointeger(L_, -1));
+                break;
+            case ValueType::INT64:
+                signal.qualified_value.value = static_cast<int64_t>(lua_tointeger(L_, -1));
+                break;
+            case ValueType::UINT32:
+                signal.qualified_value.value = static_cast<uint32_t>(lua_tointeger(L_, -1));
+                break;
+            case ValueType::UINT64:
+                signal.qualified_value.value = static_cast<uint64_t>(lua_tointeger(L_, -1));
+                break;
+            default:
+                // For unrecognized types, default to double
+                signal.qualified_value.value = lua_tonumber(L_, -1);
+                break;
+        }
     } else if (lua_type(L_, -1) == LUA_TBOOLEAN) {
         signal.qualified_value.value = static_cast<bool>(lua_toboolean(L_, -1));
     } else if (lua_type(L_, -1) == LUA_TSTRING) {
         signal.qualified_value.value = std::string(lua_tostring(L_, -1));
     } else if (lua_type(L_, -1) == LUA_TTABLE) {
         // Handle struct values (Lua tables)
-        // Convert to lowercase for case-insensitive comparison
-        std::string value_type_lower = value_type_str;
-        std::transform(value_type_lower.begin(), value_type_lower.end(), value_type_lower.begin(), ::tolower);
-
-        if (value_type_lower == "struct" || value_type_str.find("Types.") == 0) {
+        if (value_type == ValueType::STRUCT || value_type == ValueType::STRUCT_ARRAY) {
             // Convert Lua table to VSS struct with proper type handling
-            auto vss_type = value_type_from_string(value_type_str);
-            if (!vss_type.has_value() && value_type_lower == "struct") {
-                vss_type = ValueType::STRUCT;
-            }
-            signal.qualified_value.value = VSSTypeHelper::from_lua_table_typed(L_, -1, vss_type.value_or(ValueType::STRUCT));
+            signal.qualified_value.value = VSSTypeHelper::from_lua_table_typed(L_, -1, value_type);
         } else {
             // Unknown table type, use empty monostate
             signal.qualified_value.value = std::monostate{};
@@ -271,37 +287,53 @@ std::optional<VSSSignal> LuaMapper::extract_vss_signal_from_stack() {
         return std::nullopt;
     }
 
-    // Get value type (for determining how to parse the value)
-    std::string value_type_str;
+    // Get value type (stored as integer ValueType enum)
+    ValueType value_type = ValueType::DOUBLE;  // Default
     lua_getfield(L_, -1, "type");
-    if (lua_isstring(L_, -1)) {
-        value_type_str = lua_tostring(L_, -1);
-    } else {
-        value_type_str = "double";
+    if (lua_isinteger(L_, -1)) {
+        value_type = static_cast<ValueType>(lua_tointeger(L_, -1));
+    } else if (lua_isnumber(L_, -1)) {
+        value_type = static_cast<ValueType>(static_cast<int>(lua_tonumber(L_, -1)));
     }
     lua_pop(L_, 1);
 
-    // Get value and convert to appropriate VSS Value type
+    // Get value and convert to appropriate VSS Value type based on enum
     lua_getfield(L_, -1, "value");
     if (lua_type(L_, -1) == LUA_TNUMBER) {
-        signal.qualified_value.value = lua_tonumber(L_, -1);
+        // Use the ValueType enum to determine the correct C++ type
+        switch (value_type) {
+            case ValueType::FLOAT:
+                signal.qualified_value.value = static_cast<float>(lua_tonumber(L_, -1));
+                break;
+            case ValueType::DOUBLE:
+                signal.qualified_value.value = lua_tonumber(L_, -1);
+                break;
+            case ValueType::INT32:
+                signal.qualified_value.value = static_cast<int32_t>(lua_tointeger(L_, -1));
+                break;
+            case ValueType::INT64:
+                signal.qualified_value.value = static_cast<int64_t>(lua_tointeger(L_, -1));
+                break;
+            case ValueType::UINT32:
+                signal.qualified_value.value = static_cast<uint32_t>(lua_tointeger(L_, -1));
+                break;
+            case ValueType::UINT64:
+                signal.qualified_value.value = static_cast<uint64_t>(lua_tointeger(L_, -1));
+                break;
+            default:
+                // For unrecognized types, default to double
+                signal.qualified_value.value = lua_tonumber(L_, -1);
+                break;
+        }
     } else if (lua_type(L_, -1) == LUA_TBOOLEAN) {
         signal.qualified_value.value = static_cast<bool>(lua_toboolean(L_, -1));
     } else if (lua_type(L_, -1) == LUA_TSTRING) {
         signal.qualified_value.value = std::string(lua_tostring(L_, -1));
     } else if (lua_type(L_, -1) == LUA_TTABLE) {
         // Handle struct values (Lua tables)
-        // Convert to lowercase for case-insensitive comparison
-        std::string value_type_lower = value_type_str;
-        std::transform(value_type_lower.begin(), value_type_lower.end(), value_type_lower.begin(), ::tolower);
-
-        if (value_type_lower == "struct" || value_type_str.find("Types.") == 0) {
+        if (value_type == ValueType::STRUCT || value_type == ValueType::STRUCT_ARRAY) {
             // Convert Lua table to VSS struct with proper type handling
-            auto vss_type = value_type_from_string(value_type_str);
-            if (!vss_type.has_value() && value_type_lower == "struct") {
-                vss_type = ValueType::STRUCT;
-            }
-            signal.qualified_value.value = VSSTypeHelper::from_lua_table_typed(L_, -1, vss_type.value_or(ValueType::STRUCT));
+            signal.qualified_value.value = VSSTypeHelper::from_lua_table_typed(L_, -1, value_type);
         } else {
             // Unknown table type, use empty monostate
             signal.qualified_value.value = std::monostate{};

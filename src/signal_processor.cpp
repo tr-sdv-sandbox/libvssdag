@@ -35,6 +35,49 @@ bool SignalProcessorDAG::initialize(const std::unordered_map<std::string, Signal
 }
 
 bool SignalProcessorDAG::setup_lua_environment() {
+    // First, set up ValueType enum constants from C++
+    lua_State* L = lua_mapper_->get_lua_state();
+
+    // ValueType enum constants
+    lua_pushinteger(L, static_cast<int>(ValueType::UNSPECIFIED));
+    lua_setglobal(L, "TYPE_UNSPECIFIED");
+    lua_pushinteger(L, static_cast<int>(ValueType::STRING));
+    lua_setglobal(L, "TYPE_STRING");
+    lua_pushinteger(L, static_cast<int>(ValueType::BOOL));
+    lua_setglobal(L, "TYPE_BOOL");
+    lua_pushinteger(L, static_cast<int>(ValueType::INT32));
+    lua_setglobal(L, "TYPE_INT32");
+    lua_pushinteger(L, static_cast<int>(ValueType::INT64));
+    lua_setglobal(L, "TYPE_INT64");
+    lua_pushinteger(L, static_cast<int>(ValueType::UINT32));
+    lua_setglobal(L, "TYPE_UINT32");
+    lua_pushinteger(L, static_cast<int>(ValueType::UINT64));
+    lua_setglobal(L, "TYPE_UINT64");
+    lua_pushinteger(L, static_cast<int>(ValueType::FLOAT));
+    lua_setglobal(L, "TYPE_FLOAT");
+    lua_pushinteger(L, static_cast<int>(ValueType::DOUBLE));
+    lua_setglobal(L, "TYPE_DOUBLE");
+    lua_pushinteger(L, static_cast<int>(ValueType::STRING_ARRAY));
+    lua_setglobal(L, "TYPE_STRING_ARRAY");
+    lua_pushinteger(L, static_cast<int>(ValueType::BOOL_ARRAY));
+    lua_setglobal(L, "TYPE_BOOL_ARRAY");
+    lua_pushinteger(L, static_cast<int>(ValueType::INT32_ARRAY));
+    lua_setglobal(L, "TYPE_INT32_ARRAY");
+    lua_pushinteger(L, static_cast<int>(ValueType::INT64_ARRAY));
+    lua_setglobal(L, "TYPE_INT64_ARRAY");
+    lua_pushinteger(L, static_cast<int>(ValueType::UINT32_ARRAY));
+    lua_setglobal(L, "TYPE_UINT32_ARRAY");
+    lua_pushinteger(L, static_cast<int>(ValueType::UINT64_ARRAY));
+    lua_setglobal(L, "TYPE_UINT64_ARRAY");
+    lua_pushinteger(L, static_cast<int>(ValueType::FLOAT_ARRAY));
+    lua_setglobal(L, "TYPE_FLOAT_ARRAY");
+    lua_pushinteger(L, static_cast<int>(ValueType::DOUBLE_ARRAY));
+    lua_setglobal(L, "TYPE_DOUBLE_ARRAY");
+    lua_pushinteger(L, static_cast<int>(ValueType::STRUCT));
+    lua_setglobal(L, "TYPE_STRUCT");
+    lua_pushinteger(L, static_cast<int>(ValueType::STRUCT_ARRAY));
+    lua_setglobal(L, "TYPE_STRUCT_ARRAY");
+
     const char* dag_lua_infrastructure = R"(
 -- Signal status constants (matching vss::types::SignalQuality enum)
 STATUS_UNKNOWN = 0
@@ -71,25 +114,26 @@ deps_status = {}
 
 -- Create VSS signal
 function create_vss_signal(path, value, datatype, status)
+    -- datatype is now an integer (ValueType enum value from C++)
     -- Default status to STATUS_VALID if not provided
     status = status or STATUS_VALID
-    
+
     -- If value is nil, set status to invalid if not already set
     if value == nil and status == STATUS_VALID then
         status = STATUS_INVALID
     end
-    
+
     -- Clean up float values to avoid displaying noise
-    if (datatype == "float" or datatype == "double") and type(value) == "number" then
+    if (datatype == TYPE_FLOAT or datatype == TYPE_DOUBLE) and type(value) == "number" then
         if math.abs(value) < 1e-6 then
             value = 0
         end
     end
-    
+
     return {
         path = path,
         value = value,
-        type = datatype,
+        type = datatype,  -- Stores integer enum value
         status = status
     }
 end
@@ -380,7 +424,7 @@ void SignalProcessorDAG::generate_transform_function(const SignalNode* node) {
                 lua << "    if result == nil then my_status = STATUS_INVALID end\n";
             }
             lua << "    return create_vss_signal('" << node->signal_name
-                << "', result, '" << value_type_to_string(node->mapping.datatype) << "', my_status)\n";
+                << "', result, " << static_cast<int>(node->mapping.datatype) << ", my_status)\n";
         } else {
             // Single-line expression
             lua << "    local result = " << code.expression << "\n";
@@ -393,7 +437,7 @@ void SignalProcessorDAG::generate_transform_function(const SignalNode* node) {
                 lua << "    if result == nil then my_status = STATUS_INVALID end\n";
             }
             lua << "    return create_vss_signal('" << node->signal_name
-                << "', result, '" << value_type_to_string(node->mapping.datatype) << "', my_status)\n";
+                << "', result, " << static_cast<int>(node->mapping.datatype) << ", my_status)\n";
         }
             
     } else if (std::holds_alternative<ValueMapping>(node->mapping.transform)) {
@@ -445,8 +489,8 @@ void SignalProcessorDAG::generate_transform_function(const SignalNode* node) {
         if (!node->is_input_signal) {
             lua << "    if result == nil then my_status = 'invalid' end\n";
         }
-        lua << "    return create_vss_signal('" << node->signal_name 
-            << "', result, '" << value_type_to_string(node->mapping.datatype) << "', my_status)\n";
+        lua << "    return create_vss_signal('" << node->signal_name
+            << "', result, " << static_cast<int>(node->mapping.datatype) << ", my_status)\n";
         
     } else {
         // DirectMapping
@@ -467,8 +511,8 @@ void SignalProcessorDAG::generate_transform_function(const SignalNode* node) {
         if (node->is_input_signal) {
             lua << "    -- Status already set from signal_status table\n";
         }
-        lua << "    return create_vss_signal('" << node->signal_name 
-            << "', result, '" << value_type_to_string(node->mapping.datatype) << "', my_status)\n";
+        lua << "    return create_vss_signal('" << node->signal_name
+            << "', result, " << static_cast<int>(node->mapping.datatype) << ", my_status)\n";
     }
     
     lua << "end\n";

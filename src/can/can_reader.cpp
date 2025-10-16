@@ -70,34 +70,36 @@ void SocketCANReader::read_loop() {
         LOG(ERROR) << "CAN socket not open";
         return;
     }
-    
+
+    LOG(INFO) << "CAN reader thread started, entering read loop on " << interface_name_;
+
     should_stop_ = false;
     struct can_frame frame;
     
     while (!should_stop_) {
         ssize_t nbytes = read(socket_fd_, &frame, sizeof(struct can_frame));
-        
+
         if (nbytes < 0) {
             if (errno != EINTR) {
                 LOG(ERROR) << "Error reading from CAN socket: " << strerror(errno);
             }
             continue;
         }
-        
+
         if (nbytes < sizeof(struct can_frame)) {
             LOG(WARNING) << "Incomplete CAN frame received";
             continue;
         }
-        
+
         if (frame_handler_) {
             CANFrame can_frame;
             can_frame.id = frame.can_id & CAN_EFF_MASK;
             can_frame.data.assign(frame.data, frame.data + frame.can_dlc);
-            
+
             auto now = std::chrono::steady_clock::now();
             can_frame.timestamp_us = std::chrono::duration_cast<std::chrono::microseconds>(
                 now.time_since_epoch()).count();
-            
+
             frame_handler_(can_frame);
         }
     }

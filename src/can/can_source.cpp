@@ -48,9 +48,9 @@ bool CANSignalSource::initialize() {
         return true; // Not an error, just no signals to monitor
     }
     
-    LOG(INFO) << "CANSignalSource monitoring " << required_can_ids_.size() 
+    LOG(INFO) << "CANSignalSource monitoring " << required_can_ids_.size()
               << " CAN message IDs for " << dbc_signal_names_.size() << " DBC signals";
-    
+
     // Create CAN reader
     can_reader_ = std::make_unique<SocketCANReader>();
     if (!can_reader_->open(interface_name_)) {
@@ -77,7 +77,7 @@ void CANSignalSource::handle_can_frame(const CANFrame& frame) {
     if (required_can_ids_.find(frame.id) == required_can_ids_.end()) {
         return;
     }
-    
+
     VLOG(3) << "Processing CAN frame ID: 0x" << std::hex << frame.id;
     
     // Decode the frame directly to signal updates
