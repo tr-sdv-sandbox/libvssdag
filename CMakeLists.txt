@@ -20,31 +20,11 @@ find_package(glog REQUIRED)
 # Find Lua
 find_package(Lua REQUIRED)
 
-# Find nlohmann_json
-find_package(nlohmann_json QUIET)
-if(NOT nlohmann_json_FOUND)
-    message(STATUS "nlohmann_json not found, will fetch from GitHub")
-    include(FetchContent)
-    FetchContent_Declare(
-        json
-        GIT_REPOSITORY https://github.com/nlohmann/json.git
-        GIT_TAG v3.11.2
-    )
-    FetchContent_MakeAvailable(json)
-endif()
+# Find nlohmann_json (required)
+find_package(nlohmann_json REQUIRED)
 
-# Find yaml-cpp
-find_package(yaml-cpp QUIET)
-if(NOT yaml-cpp_FOUND)
-    message(STATUS "yaml-cpp not found, will fetch from GitHub")
-    include(FetchContent)
-    FetchContent_Declare(
-        yaml-cpp
-        GIT_REPOSITORY https://github.com/jbeder/yaml-cpp.git
-        GIT_TAG 0.8.0
-    )
-    FetchContent_MakeAvailable(yaml-cpp)
-endif()
+# Find yaml-cpp (required)
+find_package(yaml-cpp REQUIRED)
 
 # Fetch moodycamel concurrent queue
 message(STATUS "Fetching moodycamel::ConcurrentQueue")
@@ -64,16 +44,18 @@ if(BUILD_TESTS OR BUILD_INTEGRATION_TESTS)
 endif()
 
 # Find dbcppp (DBC parser library)
-find_package(dbcppp QUIET)
-if(NOT dbcppp_FOUND)
-    message(STATUS "dbcppp not found, will try to build from source")
-    include(FetchContent)
-    FetchContent_Declare(
-        dbcppp
-        GIT_REPOSITORY https://github.com/xR3b0rn/dbcppp.git
-        GIT_TAG master
+find_library(DBCPPP_LIBRARY NAMES dbcppp)
+find_path(DBCPPP_INCLUDE_DIR NAMES dbcppp/Network.h)
+
+if(DBCPPP_LIBRARY AND DBCPPP_INCLUDE_DIR)
+    message(STATUS "Found dbcppp: ${DBCPPP_LIBRARY}")
+    add_library(dbcppp SHARED IMPORTED)
+    set_target_properties(dbcppp PROPERTIES
+        IMPORTED_LOCATION "${DBCPPP_LIBRARY}"
+        INTERFACE_INCLUDE_DIRECTORIES "${DBCPPP_INCLUDE_DIR}"
     )
-    FetchContent_MakeAvailable(dbcppp)
+else()
+    message(FATAL_ERROR "dbcppp not found. Please install it first.")
 endif()
 
 # Find or fetch libvss-types
