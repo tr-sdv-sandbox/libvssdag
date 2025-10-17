@@ -1,22 +1,19 @@
 # libVSSDAG
 
-A high-performance C++ library for transforming automotive CAN bus signals into [Vehicle Signal Specification (VSS)](https://covesa.github.io/vehicle_signal_specification/) format using a Directed Acyclic Graph (DAG) architecture.
+C++ library for transforming CAN bus signals into VSS format via DAG-based processing pipeline with embedded Lua transforms.
 
-Inspired by https://github.com/eclipse-kuksa/kuksa-can-provider
+Inspired by [eclipse-kuksa/kuksa-can-provider](https://github.com/eclipse-kuksa/kuksa-can-provider)
 
 ## Overview
 
-libVSSDAG provides a flexible signal processing pipeline that transforms raw CAN messages into standardized VSS signals. The library uses a DAG-based approach to handle complex signal dependencies, enabling sophisticated transformations and derived signal calculations through embedded Lua scripting.
+Processes raw CAN messages through a dependency-aware pipeline: DBC parsing → topological sort → Lua transforms → VSS output. Handles multi-level derived signals, VSS 4.0 structs, and automatic invalid/not-available signal propagation.
 
-### Key Features
-
-- **DAG-based Signal Processing**: Automatically resolves signal dependencies and processes in optimal order
-- **Lua Transformations**: Embed complex logic, state machines, and calculations directly in YAML configurations
-- **VSS 4.0 Support**: Native support for struct types and nested data structures
-- **Real-time Processing**: Optimized for automotive real-time requirements
-- **Flexible Data Sources**: Support for live CAN interfaces and log replay
-- **Signal Aggregation**: Multiple strategies for handling slowly-arriving distributed data
-- **Invalid/Not-Available Signal Handling**: Automatic detection and propagation of invalid sensor states
+**Core capabilities:**
+- DAG topology automatically resolves signal dependencies and ensures correct processing order
+- Lua scripting engine for stateful transforms (filters, derivatives, state machines)
+- VSS 4.0 struct aggregation with built-in quality tracking (VALID/INVALID/NOT_AVAILABLE)
+- Lock-free queuing for real-time automotive constraints
+- Extensible ISignalSource interface for CAN, SOME/IP, MQTT, etc.
 
 ## Installation
 
@@ -63,100 +60,146 @@ add_subdirectory(path/to/libVSSDAG)
 target_link_libraries(your_target PRIVATE vssdag)
 ```
 
-## Library Usage
+## API
 
-### Basic Example
+### Core Types
+
+```cpp
+// Signal update from sources (include/vssdag/signal_source.h:19)
+struct SignalUpdate {
+    std::string signal_name;
+    vss::types::Value value;  // Typed VSS value
+    std::chrono::steady_clock::time_point timestamp;
+    vss::types::SignalQuality status;  // VALID/INVALID/NOT_AVAILABLE
+};
+
+// Main processor interface (include/vssdag/signal_processor.h:14)
+class SignalProcessorDAG {
+    bool initialize(const std::unordered_map<std::string, SignalMapping>& mappings);
+    std::vector<VSSSignal> process_signal_updates(const std::vector<SignalUpdate>& updates);
+    std::vector<std::string> get_required_input_signals() const;
+};
+
+// Signal source interface (include/vssdag/signal_source.h:26)
+class ISignalSource {
+    virtual bool initialize() = 0;
+    virtual std::vector<SignalUpdate> poll() = 0;  // Non-blocking
+    virtual std::vector<std::string> get_exported_signals() const = 0;
+};
+
+// Transform types (include/vssdag/mapping_types.h:12)
+struct DirectMapping {};
+struct CodeTransform { std::string expression; };  // Lua code
+struct ValueMapping { std::unordered_map<std::string, std::string> mappings; };
+using Transform = std::variant<DirectMapping, CodeTransform, ValueMapping>;
+
+// Signal mapping configuration (include/vssdag/mapping_types.h:33)
+struct SignalMapping {
+    ValueType datatype;
+    Transform transform;
+    std::vector<std::string> depends_on;  // Dependencies for DAG
+    UpdateTrigger update_trigger;  // ON_DEPENDENCY | PERIODIC | BOTH
+    int interval_ms;  // Throttling/periodic interval
+    SignalSource source;  // Source info for input signals
+    std::string struct_type;  // VSS 4.0 struct type
+    bool is_struct;
+};
+```
+
+### Basic Usage
 
 ```cpp
 #include <vssdag/signal_processor.h>
 #include <vssdag/can/can_source.h>
 
-using namespace vssdag;
+// Parse YAML mappings
+auto mappings = parse_yaml("mappings.yaml");
 
-// Initialize the processor
+// Initialize processor with DAG
 SignalProcessorDAG processor;
 processor.initialize(mappings);
 
-// Create a CAN signal source
-CANSignalSource can_source("can0", "vehicle.dbc");
+// Create CAN source
+auto can_source = std::make_unique<CANSignalSource>("can0", "vehicle.dbc", mappings);
+can_source->initialize();
 
-// Process updates
+// Main processing loop
 while (running) {
-    auto updates = can_source.get_updates();
+    auto updates = can_source->poll();  // Non-blocking
     auto vss_signals = processor.process_signal_updates(updates);
-    
+
     for (const auto& signal : vss_signals) {
-        // Handle VSS signal with status
-        if (signal.status == SignalStatus::Valid) {
-            std::cout << signal.path << " = " << signal.value << std::endl;
-        } else if (signal.status == SignalStatus::Invalid) {
-            std::cout << signal.path << " = INVALID" << std::endl;
-        } else if (signal.status == SignalStatus::NotAvailable) {
-            std::cout << signal.path << " = NOT AVAILABLE" << std::endl;
+        if (signal.qualified_value.quality == SignalQuality::VALID) {
+            std::cout << signal.path << " = " << signal.qualified_value.value << std::endl;
         }
     }
 }
 ```
 
-### Configuration Format
-
-Signal mappings are defined in YAML:
+### YAML Configuration
 
 ```yaml
-mappings:
-  # Simple CAN signal mapping
-  - signal: Vehicle.Speed
-    source:
-      type: dbc
-      name: DI_vehicleSpeed
-    datatype: float
-    transform:
-      code: "lowpass(x, 0.3)"  # Lua transform with low-pass filter
-    
-  # Derived signal with dependencies
-  - signal: Vehicle.Acceleration
-    depends_on: [Vehicle.Speed]
-    datatype: float
-    transform:
-      code: |
-        local speed = dependencies["Vehicle.Speed"]
-        return derivative(speed, "Vehicle.Speed")
-    
-  # Struct type for grouped data
-  - signal: Vehicle.Powertrain.Battery.Status
-    depends_on: [Battery.Voltage, Battery.Current, Battery.Temperature]
-    datatype: struct
-    struct_type: BatteryStatus
-    transform:
-      code: |
-        return {
-          voltage = dependencies["Battery.Voltage"],
-          current = dependencies["Battery.Current"],
-          temperature = dependencies["Battery.Temperature"],
-          power = dependencies["Battery.Voltage"] * dependencies["Battery.Current"]
-        }
+# Direct CAN mapping with Lua filter
+- signal: Vehicle.Speed
+  source: {type: dbc, name: DI_vehicleSpeed}
+  datatype: float
+  transform:
+    code: "lowpass(x, 0.3)"
+
+# Derived signal (dependencies trigger processing)
+- signal: Vehicle.Acceleration.Longitudinal
+  depends_on: [Vehicle.Speed]
+  datatype: float
+  transform:
+    code: "return derivative(deps['Vehicle.Speed']) * 0.277778"
+
+# Multi-dependency with conditional logic
+- signal: Telemetry.HarshBraking
+  depends_on: [Vehicle.Acceleration.Longitudinal, Vehicle.Speed]
+  datatype: boolean
+  transform:
+    code: |
+      local accel = deps['Vehicle.Acceleration.Longitudinal']
+      return accel < -19.6 and sustained_condition(true, 200)
+
+# VSS 4.0 struct aggregation
+- signal: Vehicle.DynamicsStruct
+  datatype: struct
+  struct_type: Types.VehicleDynamics
+  depends_on: [Vehicle.Speed, Vehicle.Acceleration.Longitudinal]
+  transform:
+    code: |
+      return {
+        Speed = deps['Vehicle.Speed'],
+        LongitudinalAcceleration = deps['Vehicle.Acceleration.Longitudinal']
+      }
+
+# Periodic trigger (runs every 100ms regardless of dependencies)
+- signal: Vehicle.Powertrain.Efficiency
+  depends_on: [Vehicle.Powertrain.Motor.Power, Vehicle.Powertrain.Battery.Power]
+  update_trigger: periodic
+  interval_ms: 100
+  transform:
+    code: "return (deps['Vehicle.Powertrain.Motor.Power'] / deps['Vehicle.Powertrain.Battery.Power']) * 100"
 ```
 
 ## Architecture
 
-### Signal Processing Pipeline
+**Pipeline:** CAN frames → DBC decode → SignalUpdate → DAG topological sort → Lua transforms → VSSSignal output
 
-```
-CAN Bus → DBC Parser → Signal Source → DAG Processor → VSS Output
-                            ↓              ↓
-                     Signal Updates   Lua Transforms
-                                          ↓
-                                   Derived Signals
-```
+**Key components:**
+- `SignalProcessorDAG`: Orchestrates DAG initialization and signal processing
+- `SignalDAG`: Builds dependency graph, performs topological sort
+- `LuaMapper`: Executes transforms with stateful context (filters maintain history)
+- `CANSignalSource`: SocketCAN reader + DBC parser, detects invalid/not-available signals
+- `DBCParser`: Decodes frames using libdbcppp, validates ranges
 
-### Core Components
-
-- **SignalProcessorDAG**: Main processing engine with dependency resolution
-- **SignalDAG**: Manages signal topology and processing order
-- **LuaMapper**: Executes Lua transformations with stateful context
-- **CANSignalSource**: Interfaces with CAN bus via SocketCAN
-- **DBCParser**: Parses DBC files for signal definitions
-- **VSSFormatter**: Formats output according to VSS specifications
+**Processing model:**
+1. Signal updates trigger topological traversal from dependency roots
+2. Each node processes when dependencies update or periodic timer fires
+3. Lua context receives `deps` table with dependency values and `status` table for quality
+4. Invalid/not-available signals propagate as `nil` in Lua with status metadata
+5. Filters (lowpass, derivative) use configurable strategies: PROPAGATE, HOLD, or HOLD_TIMEOUT
 
 ## Examples
 
@@ -189,110 +232,81 @@ cd examples/battery_management
 - **Battery Simulation**: Demonstrates aggregation strategies for distributed sensors
 - **Invalid Signal Handling**: Examples of detecting and handling sensor failures (see `examples/invalid_signal_handling.yaml`)
 
-## Advanced Features
+## Lua API
 
-### Lua Transform Functions
-
-The library provides built-in Lua functions for common operations:
-
-- `lowpass(value, alpha)`: Low-pass filter with configurable invalid signal strategies
-- `derivative(value, signal_name)`: Calculate rate of change
-- `moving_average(value, signal_name, window)`: Moving average
-- `threshold(value, limit)`: Threshold detection
-- `state_machine(state, event)`: State machine implementation
-
-### Invalid/Not-Available Signal Handling
-
-The library automatically detects and propagates invalid and not-available signals from CAN bus:
-
-#### Automatic Detection
-- **Invalid signals**: Detected when all bits are set (0xFF pattern) or values are out of range
-- **Not-Available signals**: Detected when all bits minus one are set (0xFE pattern)
-- **DBC-aware**: Respects signal ranges defined in DBC files
-
-#### Lua Signal Status
-Signals in Lua have associated status information:
+### Built-in Functions
 
 ```lua
--- Invalid/NA signals are represented as nil
-if dependencies["Battery.Voltage"] == nil then
-    -- Check status table for reason
-    if status["Battery.Voltage"] == STATUS_INVALID then
-        -- Sensor failure or out-of-range
-    elseif status["Battery.Voltage"] == STATUS_NOT_AVAILABLE then
-        -- Sensor not equipped or not ready
+-- Filters
+lowpass(x, alpha)                           -- Exponential moving average
+lowpass(x, alpha, STRATEGY_HOLD)            -- Hold last valid on invalid input
+lowpass(x, alpha, STRATEGY_HOLD_TIMEOUT, 5000)  -- Hold with 5s timeout
+moving_average(x, signal_name, window)      -- Sliding window average
+derivative(x, signal_name)                  -- Rate of change
+threshold(x, limit)                         -- Boolean threshold
+sustained_condition(condition, duration_ms) -- Debounce/sustain logic
+state_machine(state, event)                 -- State machine transitions
+```
+
+### Context Variables
+
+```lua
+-- Dependency access
+deps['Vehicle.Speed']           -- Returns value or nil if invalid/not-available
+
+-- Status checking
+status['Vehicle.Speed']         -- STATUS_VALID | STATUS_INVALID | STATUS_NOT_AVAILABLE
+
+-- Constants
+STATUS_VALID = 0
+STATUS_INVALID = 1              -- Sensor failure or out of range
+STATUS_NOT_AVAILABLE = 2        -- Sensor not equipped or not ready
+
+STRATEGY_PROPAGATE = 0          -- Pass nil through filters
+STRATEGY_HOLD = 1               -- Maintain last valid value
+STRATEGY_HOLD_TIMEOUT = 2       -- Hold with timeout then propagate
+```
+
+### Invalid Signal Handling
+
+Invalid signals detected via DBC range checks or bit patterns (0xFF=INVALID, 0xFE=NOT_AVAILABLE):
+
+```lua
+-- Check and handle invalid signals
+if deps['Battery.Voltage'] == nil then
+    if status['Battery.Voltage'] == STATUS_INVALID then
+        return 0  -- Provide fallback
+    elseif status['Battery.Voltage'] == STATUS_NOT_AVAILABLE then
+        return nil  -- Propagate unavailability
     end
 end
 
--- Built-in filter strategies for invalid signals
-lowpass(value, alpha, STRATEGY_HOLD)  -- Hold last valid value
-lowpass(value, alpha, STRATEGY_PROPAGATE)  -- Propagate nil
-lowpass(value, alpha, STRATEGY_HOLD_TIMEOUT, 5000)  -- Hold with timeout
+-- Use filter strategies
+local filtered = lowpass(deps['Battery.Voltage'], 0.3, STRATEGY_HOLD_TIMEOUT, 5000)
 ```
-
-#### Status Constants
-```lua
--- Signal status values
-STATUS_VALID = 0
-STATUS_INVALID = 1
-STATUS_NOT_AVAILABLE = 2
-
--- Filter strategies
-STRATEGY_PROPAGATE = 0
-STRATEGY_HOLD = 1
-STRATEGY_HOLD_TIMEOUT = 2
-```
-
-### Signal Dependencies
-
-Signals can depend on multiple inputs:
-
-```yaml
-- signal: Vehicle.Powertrain.Efficiency
-  depends_on: 
-    - Vehicle.Powertrain.Motor.Power
-    - Vehicle.Powertrain.Battery.Power
-  transform:
-    code: |
-      local motor = dependencies["Vehicle.Powertrain.Motor.Power"]
-      local battery = dependencies["Vehicle.Powertrain.Battery.Power"]
-      return (motor / battery) * 100
-```
-
-### Update Triggers
-
-Control when signals are processed:
-
-- `change`: Process when input changes
-- `periodic`: Process at regular intervals
-- `both`: Combine change and periodic triggers
 
 ## Testing
 
 ```bash
-# Run tests (when available)
-cd build
-ctest
+cd build && ctest
+# or: ./build/tests/unit/signal_processor_test
 ```
 
-## Contributing
+Tests cover: DAG initialization, topological sort, derived signals, structs, invalid signal propagation, filter strategies, periodic triggers.
 
-Contributions are welcome! Please ensure:
+## Dependencies
 
-1. Code follows C++17 standards
-2. New features include tests
-3. Documentation is updated
-4. Examples demonstrate new capabilities
+- **glog**: Logging framework
+- **lua5.4/5.3**: Scripting engine for transforms
+- **yaml-cpp**: YAML parsing
+- **nlohmann_json**: JSON utilities
+- **dbcppp**: DBC file parser
+- **moodycamel::concurrentqueue**: Lock-free queuing
+- **libvss-types**: VSS type definitions
 
 ## License
 
-[Specify your license here]
+Apache License 2.0
 
-## Roadmap
-- [ ] VSS path validation against .vspec schemas
-- [ ] Additional signal source types (Ethernet)
-- [ ] Performance optimizations for high-frequency signals
 
-## Support
 
-For issues, questions, or contributions, please [open an issue](https://github.com/skarlsson/libVSSDAG/issues).
