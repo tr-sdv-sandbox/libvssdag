@@ -121,8 +121,8 @@ endif()
 # Installation
 include(GNUInstallDirs)
 
-# Set the export name to create vssdag::vssdag target (must be before install)
-set_target_properties(vssdag PROPERTIES EXPORT_NAME vssdag)
+# Set the export name to create vss::dag target (must be before install)
+set_target_properties(vssdag PROPERTIES EXPORT_NAME dag)
 
 # Install library
 install(TARGETS vssdag
@@ -140,7 +140,7 @@ install(DIRECTORY include/vssdag
 # Install CMake config files
 install(EXPORT vssdag-targets
     FILE vssdagTargets.cmake
-    NAMESPACE vssdag::
+    NAMESPACE vss::
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/vssdag
 )
 

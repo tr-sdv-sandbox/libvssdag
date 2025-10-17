@@ -43,12 +43,6 @@ sudo apt-get install -y \
 ./install_prereq.sh
 ```
 
-Note: The build system will automatically fetch missing dependencies:
-- yaml-cpp 0.8.0 (if not found)
-- nlohmann/json 3.11.2 (if not found)
-- dbcppp (CAN DBC parser)
-- moodycamel/concurrentqueue 1.0.4
-
 ### Building
 
 ```bash
