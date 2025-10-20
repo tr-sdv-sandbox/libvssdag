@@ -56,9 +56,11 @@ sudo ldconfig
 
 ### 3. Build and Install libvss-types
 
+**Option A: System-wide install (recommended for CI/production)**
+
 ```bash
 cd /tmp
-git clone --depth 1 https://github.com/tr-sdv-sandbox/libvss-types.git
+git clone --depth 1 --branch v0.0.2 https://github.com/tr-sdv-sandbox/libvss-types.git
 cd libvss-types
 mkdir -p build && cd build
 cmake -DCMAKE_BUILD_TYPE=Release \
@@ -69,6 +71,15 @@ cmake -DCMAKE_BUILD_TYPE=Release \
 make -j$(nproc)
 sudo make install
 sudo ldconfig
+```
+
+**Option B: Parent directory (for development)**
+
+Place libvss-types in parent directory and libvssdag will find it automatically:
+```
+tr-sdv-sandbox/
+├── libvss-types/
+└── libvssdag/
 ```
 
 ## Build libvssdag
