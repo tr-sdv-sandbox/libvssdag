@@ -181,6 +181,14 @@ while (running) {
   interval_ms: 100
   transform:
     code: "return (deps['Vehicle.Powertrain.Motor.Power'] / deps['Vehicle.Powertrain.Battery.Power']) * 100"
+
+# Delayed propagation (actuator simulation - door lock takes 200ms to engage)
+# Note: delayed() automatically triggers periodic re-evaluation until delay elapses
+- signal: Vehicle.Cabin.Door.Row1.Left.IsLocked
+  depends_on: [Vehicle.Cabin.Door.Row1.Left.IsLocked.Target]
+  datatype: boolean
+  transform:
+    code: "delayed(deps['Vehicle.Cabin.Door.Row1.Left.IsLocked.Target'], 200)"
 ```
 
 ## Architecture
@@ -246,6 +254,11 @@ derivative(x, signal_name)                  -- Rate of change
 threshold(x, limit)                         -- Boolean threshold
 sustained_condition(condition, duration_ms) -- Debounce/sustain logic
 state_machine(state, event)                 -- State machine transitions
+
+-- Timing
+delayed(value, delay_ms)                    -- Delay value propagation by specified milliseconds
+                                            -- Returns nil until delay elapses after value change
+                                            -- Useful for actuator simulation (e.g., door locks take 200ms)
 ```
 
 ### Context Variables

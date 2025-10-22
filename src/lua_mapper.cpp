@@ -162,11 +162,23 @@ VSSSignal LuaMapper::extract_vss_signal(int index) {
             case ValueType::DOUBLE:
                 signal.qualified_value.value = lua_tonumber(L_, -1);
                 break;
+            case ValueType::INT8:
+                signal.qualified_value.value = static_cast<int8_t>(lua_tointeger(L_, -1));
+                break;
+            case ValueType::INT16:
+                signal.qualified_value.value = static_cast<int16_t>(lua_tointeger(L_, -1));
+                break;
             case ValueType::INT32:
                 signal.qualified_value.value = static_cast<int32_t>(lua_tointeger(L_, -1));
                 break;
             case ValueType::INT64:
                 signal.qualified_value.value = static_cast<int64_t>(lua_tointeger(L_, -1));
+                break;
+            case ValueType::UINT8:
+                signal.qualified_value.value = static_cast<uint8_t>(lua_tointeger(L_, -1));
+                break;
+            case ValueType::UINT16:
+                signal.qualified_value.value = static_cast<uint16_t>(lua_tointeger(L_, -1));
                 break;
             case ValueType::UINT32:
                 signal.qualified_value.value = static_cast<uint32_t>(lua_tointeger(L_, -1));
@@ -299,20 +311,43 @@ std::optional<VSSSignal> LuaMapper::extract_vss_signal_from_stack() {
 
     // Get value and convert to appropriate VSS Value type based on enum
     lua_getfield(L_, -1, "value");
-    if (lua_type(L_, -1) == LUA_TNUMBER) {
+    int lua_value_type = lua_type(L_, -1);
+    LOG(INFO) << "[extract_vss_signal] Signal: " << signal.path
+              << ", ValueType enum: " << static_cast<int>(value_type)
+              << ", Lua type: " << lua_value_type
+              << " (0=nil,1=boolean,2=lightuserdata,3=number,4=string,5=table,6=function,7=userdata,8=thread)";
+
+    if (lua_value_type == LUA_TNUMBER) {
         // Use the ValueType enum to determine the correct C++ type
         switch (value_type) {
+            case ValueType::BOOL:
+                // Boolean stored as number in Lua (1=true, 0=false) - convert back
+                LOG(INFO) << "[extract_vss_signal] Converting Lua number to C++ bool (number value: " << lua_tonumber(L_, -1) << ")";
+                signal.qualified_value.value = static_cast<bool>(lua_tointeger(L_, -1) != 0);
+                break;
             case ValueType::FLOAT:
                 signal.qualified_value.value = static_cast<float>(lua_tonumber(L_, -1));
                 break;
             case ValueType::DOUBLE:
                 signal.qualified_value.value = lua_tonumber(L_, -1);
                 break;
+            case ValueType::INT8:
+                signal.qualified_value.value = static_cast<int8_t>(lua_tointeger(L_, -1));
+                break;
+            case ValueType::INT16:
+                signal.qualified_value.value = static_cast<int16_t>(lua_tointeger(L_, -1));
+                break;
             case ValueType::INT32:
                 signal.qualified_value.value = static_cast<int32_t>(lua_tointeger(L_, -1));
                 break;
             case ValueType::INT64:
                 signal.qualified_value.value = static_cast<int64_t>(lua_tointeger(L_, -1));
+                break;
+            case ValueType::UINT8:
+                signal.qualified_value.value = static_cast<uint8_t>(lua_tointeger(L_, -1));
+                break;
+            case ValueType::UINT16:
+                signal.qualified_value.value = static_cast<uint16_t>(lua_tointeger(L_, -1));
                 break;
             case ValueType::UINT32:
                 signal.qualified_value.value = static_cast<uint32_t>(lua_tointeger(L_, -1));
@@ -325,9 +360,9 @@ std::optional<VSSSignal> LuaMapper::extract_vss_signal_from_stack() {
                 signal.qualified_value.value = lua_tonumber(L_, -1);
                 break;
         }
-    } else if (lua_type(L_, -1) == LUA_TBOOLEAN) {
+    } else if (lua_value_type == LUA_TBOOLEAN) {
         signal.qualified_value.value = static_cast<bool>(lua_toboolean(L_, -1));
-    } else if (lua_type(L_, -1) == LUA_TSTRING) {
+    } else if (lua_value_type == LUA_TSTRING) {
         signal.qualified_value.value = std::string(lua_tostring(L_, -1));
     } else if (lua_type(L_, -1) == LUA_TTABLE) {
         // Handle struct values (Lua tables)

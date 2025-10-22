@@ -28,9 +28,12 @@ bool SignalProcessorDAG::initialize(const std::unordered_map<std::string, Signal
     
     // Generate transform functions for all nodes
     for (const auto* node : dag_->get_processing_order()) {
-        generate_transform_function(node);
+        if (!generate_transform_function(node)) {
+            LOG(ERROR) << "Failed to generate transform for signal: " << node->signal_name;
+            return false;  // FAIL FAST on Lua compilation errors
+        }
     }
-    
+
     return true;
 }
 
@@ -104,6 +107,9 @@ signal_status = {}
 -- Signal states (private to each signal)
 signal_states = {}
 
+-- Signals with pending time-based operations (like delayed())
+signals_pending_reevaluation = {}
+
 -- Current signal context
 _current_signal = nil
 _current_provides = nil
@@ -145,6 +151,21 @@ function get_state()
     end
     signal_states[_current_signal] = signal_states[_current_signal] or {}
     return signal_states[_current_signal]
+end
+
+-- Mark signal as needing re-evaluation (for time-based operations)
+function mark_pending()
+    if not _current_signal then
+        error("mark_pending() called outside signal context")
+    end
+    signals_pending_reevaluation[_current_signal] = true
+end
+
+function clear_pending()
+    if not _current_signal then
+        error("clear_pending() called outside signal context")
+    end
+    signals_pending_reevaluation[_current_signal] = nil
 end
 
 -- Provide value (only allowed to set own provided value)
@@ -355,6 +376,37 @@ function falling_edge(value)
     return edge
 end
 
+function delayed(value, delay_ms)
+    local state = get_state()
+    local now = _current_time
+
+    -- Check if value has changed
+    if state.delay_target_value ~= value then
+        -- Value changed - start new delay timer
+        state.delay_target_value = value
+        state.delay_start_time = now
+        state.delay_pending = true
+        mark_pending()  -- Immediately mark for re-evaluation
+    end
+
+    -- Check if delay has elapsed
+    if state.delay_pending then
+        local elapsed_ms = (now - state.delay_start_time) * 1000  -- Convert seconds to milliseconds
+        if elapsed_ms >= delay_ms then
+            -- Delay elapsed - output the target value
+            state.delay_output_value = state.delay_target_value
+            state.delay_pending = false
+            clear_pending()  -- No longer needs re-evaluation
+        else
+            -- Still waiting - keep marked for re-evaluation
+            mark_pending()
+        end
+    end
+
+    -- Return current output value (will be nil initially, then delayed value)
+    return state.delay_output_value
+end
+
 -- Transform functions table
 transform_functions = {}
 
@@ -374,7 +426,7 @@ end
     return lua_mapper_->execute_lua_string(dag_lua_infrastructure);
 }
 
-void SignalProcessorDAG::generate_transform_function(const SignalNode* node) {
+bool SignalProcessorDAG::generate_transform_function(const SignalNode* node) {
     std::stringstream lua;
     
     lua << "transform_functions['" << node->signal_name << "'] = function(value)\n";
@@ -519,10 +571,12 @@ void SignalProcessorDAG::generate_transform_function(const SignalNode* node) {
 
     std::string lua_code = lua.str();
     if (!lua_mapper_->execute_lua_string(lua_code)) {
-        LOG(ERROR) << "Failed to generate transform for signal: " << node->signal_name;
-    } else {
-        VLOG(2) << "Generated transform for " << node->signal_name;
+        LOG(ERROR) << "Failed to execute Lua transform for signal: " << node->signal_name;
+        return false;
     }
+
+    VLOG(2) << "Generated transform for " << node->signal_name;
+    return true;
 }
 
 // process_can_signals method removed - functionality merged into process_signal_updates
@@ -542,11 +596,21 @@ std::optional<VSSSignal> SignalProcessorDAG::process_node(SignalNode* node) {
             input_value = 0.0;  // Dummy value, Lua will see nil
         } else if (it != signal_values_.end()) {
             // For valid input signals, use the stored typed value
-            // Extract the value from the qualified value - handle all integer types
-            if (auto* val = std::get_if<int32_t>(&it->second.value)) {
+            // Extract the value from the qualified value - handle all types
+            if (auto* val = std::get_if<bool>(&it->second.value)) {
+                input_value = *val;
+            } else if (auto* val = std::get_if<int8_t>(&it->second.value)) {
+                input_value = static_cast<int64_t>(*val);
+            } else if (auto* val = std::get_if<int16_t>(&it->second.value)) {
+                input_value = static_cast<int64_t>(*val);
+            } else if (auto* val = std::get_if<int32_t>(&it->second.value)) {
                 input_value = static_cast<int64_t>(*val);
             } else if (auto* val = std::get_if<int64_t>(&it->second.value)) {
                 input_value = *val;
+            } else if (auto* val = std::get_if<uint8_t>(&it->second.value)) {
+                input_value = static_cast<int64_t>(*val);
+            } else if (auto* val = std::get_if<uint16_t>(&it->second.value)) {
+                input_value = static_cast<int64_t>(*val);
             } else if (auto* val = std::get_if<uint32_t>(&it->second.value)) {
                 input_value = static_cast<int64_t>(*val);
             } else if (auto* val = std::get_if<uint64_t>(&it->second.value)) {
@@ -830,7 +894,60 @@ std::vector<VSSSignal> SignalProcessorDAG::process_signal_updates(
             node->has_new_data = false;
         }
     }
-    
+
+    // PHASE 2: Check for signals with pending time-based operations (like delayed())
+    lua_State* L = lua_mapper_->get_lua_state();
+    lua_getglobal(L, "signals_pending_reevaluation");
+    if (lua_istable(L, -1)) {
+        // Iterate through pending signals
+        lua_pushnil(L);  // First key
+        while (lua_next(L, -2) != 0) {
+            // key is at index -2, value at index -1
+            if (lua_isstring(L, -2)) {
+                std::string signal_name = lua_tostring(L, -2);
+                VLOG(2) << "Phase 2: Found pending signal: " << signal_name;
+
+                // Find the node and re-evaluate it
+                auto* node = dag_->get_node(signal_name);
+                if (node && !node->is_input_signal) {
+                    VLOG(2) << "Phase 2: Re-evaluating pending signal: " << signal_name;
+                    auto result = process_node(node);
+
+                    if (result.has_value()) {
+                        // For phase 2 (deferred evaluation), only output if:
+                        // 1. Signal becomes valid (delay elapsed)
+                        // 2. Value changed
+                        bool should_output = false;
+
+                        if (result.value().qualified_value.is_valid()) {
+                            // Signal is now valid - check if it changed
+                            if (node->last_output == std::chrono::steady_clock::time_point::min()) {
+                                // First valid output
+                                should_output = true;
+                                VLOG(1) << "Phase 2: First valid output for " << signal_name;
+                            } else {
+                                std::string new_value_str = VSSTypeHelper::to_string(result.value().qualified_value.value);
+                                if (node->last_output_value != new_value_str) {
+                                    should_output = true;
+                                    VLOG(1) << "Phase 2: Value changed for " << signal_name;
+                                }
+                            }
+
+                            if (should_output) {
+                                vss_signals.push_back(result.value());
+                                node->last_output = now;
+                                node->last_output_value = VSSTypeHelper::to_string(result.value().qualified_value.value);
+                                VLOG(1) << "Phase 2: Publishing output for " << signal_name;
+                            }
+                        }
+                    }
+                }
+            }
+            lua_pop(L, 1);  // Remove value, keep key for next iteration
+        }
+    }
+    lua_pop(L, 1);  // Pop the table
+
     return vss_signals;
 }
 

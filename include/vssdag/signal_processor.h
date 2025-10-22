@@ -40,7 +40,7 @@ private:
     bool setup_lua_environment();
     
     // Generate transform function for a node
-    void generate_transform_function(const SignalNode* node);
+    bool generate_transform_function(const SignalNode* node);
     
     // Process a single node
     std::optional<VSSSignal> process_node(SignalNode* node);
