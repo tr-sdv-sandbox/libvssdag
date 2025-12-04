@@ -170,3 +170,10 @@ install(FILES
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/vssdag
 )
 
+# Install Python tools
+install(PROGRAMS
+    tools/validate_mappings/vssdag_validate_mappings.py
+    DESTINATION ${CMAKE_INSTALL_BINDIR}
+    RENAME vssdag_validate_mappings
+)
+

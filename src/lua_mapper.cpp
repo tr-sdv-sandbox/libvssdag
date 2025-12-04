@@ -312,11 +312,11 @@ std::optional<VSSSignal> LuaMapper::extract_vss_signal_from_stack() {
     // Get value and convert to appropriate VSS Value type based on enum
     lua_getfield(L_, -1, "value");
     int lua_value_type = lua_type(L_, -1);
-    LOG(INFO) << "[extract_vss_signal] Signal: " << signal.path
+    /*LOG(INFO) << "[extract_vss_signal] Signal: " << signal.path
               << ", ValueType enum: " << static_cast<int>(value_type)
               << ", Lua type: " << lua_value_type
               << " (0=nil,1=boolean,2=lightuserdata,3=number,4=string,5=table,6=function,7=userdata,8=thread)";
-
+    */
     if (lua_value_type == LUA_TNUMBER) {
         // Use the ValueType enum to determine the correct C++ type
         switch (value_type) {

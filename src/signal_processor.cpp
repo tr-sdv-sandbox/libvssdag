@@ -2,6 +2,7 @@
 #include <glog/logging.h>
 #include <sstream>
 #include <iomanip>
+#include <cmath>
 
 namespace vssdag {
 
@@ -806,47 +807,47 @@ std::vector<VSSSignal> SignalProcessorDAG::process_signal_updates(
         }
     }
     
-    // Process nodes (similar to process_can_signals but simplified)
+    // Process nodes
     auto now = std::chrono::steady_clock::now();
     std::vector<SignalNode*> nodes_to_process;
-    
+
+    // PHASE 1: Determine which nodes need processing
     for (auto* node : dag_->get_processing_order()) {
         bool needs_processing = false;
-        
+
+        // Check if node has new data from dependencies
         if (node->has_new_data) {
             needs_processing = true;
         }
-        
-        // Check periodic updates
-        if (node->mapping.update_trigger == UpdateTrigger::PERIODIC || 
-            node->mapping.update_trigger == UpdateTrigger::BOTH) {
-            
-            if (node->mapping.interval_ms > 0) {
-                bool deps_available = true;
-                for (const auto& dep : node->depends_on) {
-                    if (signal_values_.find(dep) == signal_values_.end()) {
-                        deps_available = false;
-                        break;
-                    }
+
+        // Check periodic evaluation (eval_interval_ms)
+        int eval_interval = node->mapping.eval_interval_ms;
+
+        if (eval_interval > 0) {
+            bool deps_available = true;
+            for (const auto& dep : node->depends_on) {
+                if (signal_values_.find(dep) == signal_values_.end()) {
+                    deps_available = false;
+                    break;
                 }
-                
-                if (deps_available) {
-                    if (node->last_process == std::chrono::steady_clock::time_point::min()) {
+            }
+
+            if (deps_available) {
+                if (node->last_process == std::chrono::steady_clock::time_point::min()) {
+                    needs_processing = true;
+                    node->needs_periodic_update = true;
+                } else {
+                    auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                        now - node->last_process).count();
+
+                    if (elapsed_ms >= eval_interval) {
                         needs_processing = true;
                         node->needs_periodic_update = true;
-                    } else {
-                        auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                            now - node->last_process).count();
-                        
-                        if (elapsed_ms >= node->mapping.interval_ms) {
-                            needs_processing = true;
-                            node->needs_periodic_update = true;
-                        }
                     }
                 }
             }
         }
-        
+
         if (needs_processing) {
             nodes_to_process.push_back(node);
             for (auto* dependent : node->dependents) {
@@ -854,48 +855,74 @@ std::vector<VSSSignal> SignalProcessorDAG::process_signal_updates(
             }
         }
     }
-    
-    // Process nodes
+
+    // PHASE 2: Process nodes and determine output
     for (auto* node : dag_->get_processing_order()) {
         if (std::find(nodes_to_process.begin(), nodes_to_process.end(), node) != nodes_to_process.end() ||
             node->has_new_data) {
-            
+
             auto result = process_node(node);
-            
+
             if (node->needs_periodic_update) {
                 node->last_process = now;
                 node->needs_periodic_update = false;
             }
-            
+
             if (result.has_value()) {
+                const auto& new_value = result.value().qualified_value.value;
+                auto new_quality = result.value().qualified_value.quality;
                 bool should_output = false;
-                
-                if (node->last_output == std::chrono::steady_clock::time_point::min()) {
+
+                auto elapsed_since_output_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    now - node->last_output).count();
+
+                bool is_first_output = (node->last_output == std::chrono::steady_clock::time_point::min());
+
+                // Check if quality changed (always emit on quality transitions)
+                bool quality_changed = (node->last_output_quality != new_quality);
+
+                // Check if value changed beyond threshold (direct comparison, no string conversion)
+                bool value_changed = VSSTypeHelper::value_changed_beyond_threshold(
+                    node->last_output_value, new_value, node->mapping.change_threshold);
+
+                if (is_first_output) {
+                    // Always emit first value
                     should_output = true;
-                } else {
-                    auto elapsed_output_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                        now - node->last_output).count();
-                    
-                    if (node->mapping.interval_ms > 0) {
-                        if (elapsed_output_ms >= node->mapping.interval_ms) {
+                } else if (quality_changed) {
+                    // Always emit on quality transitions (VALID -> INVALID, etc.)
+                    should_output = true;
+                } else if (value_changed) {
+                    // Value changed beyond threshold
+                    if (node->mapping.min_interval_ms > 0) {
+                        // Rate-limited: only emit if min_interval elapsed
+                        if (elapsed_since_output_ms >= node->mapping.min_interval_ms) {
                             should_output = true;
                         }
+                        // else: skip this change, will catch up on next interval
                     } else {
+                        // No rate limit: emit immediately
                         should_output = true;
                     }
+                } else if (node->mapping.max_interval_ms > 0 &&
+                           elapsed_since_output_ms >= node->mapping.max_interval_ms) {
+                    // Heartbeat: emit even if unchanged (for late-joiners)
+                    should_output = true;
+                    VLOG(2) << "Heartbeat for " << node->signal_name
+                            << " (unchanged for " << elapsed_since_output_ms << "ms)";
                 }
-                
+
                 if (should_output) {
                     vss_signals.push_back(result.value());
                     node->last_output = now;
-                    node->last_output_value = VSSTypeHelper::to_string(result.value().qualified_value.value);
+                    node->last_output_value = new_value;
+                    node->last_output_quality = new_quality;
                 }
             }
             node->has_new_data = false;
         }
     }
 
-    // PHASE 2: Check for signals with pending time-based operations (like delayed())
+    // PHASE 3: Check for signals with pending time-based operations (like delayed())
     lua_State* L = lua_mapper_->get_lua_state();
     lua_getglobal(L, "signals_pending_reevaluation");
     if (lua_istable(L, -1)) {
@@ -926,8 +953,11 @@ std::vector<VSSSignal> SignalProcessorDAG::process_signal_updates(
                                 should_output = true;
                                 VLOG(1) << "Phase 2: First valid output for " << signal_name;
                             } else {
-                                std::string new_value_str = VSSTypeHelper::to_string(result.value().qualified_value.value);
-                                if (node->last_output_value != new_value_str) {
+                                // Check value change using direct Value comparison (efficient, no string conversion)
+                                if (VSSTypeHelper::value_changed_beyond_threshold(
+                                        node->last_output_value,
+                                        result.value().qualified_value.value,
+                                        node->mapping.change_threshold)) {
                                     should_output = true;
                                     VLOG(1) << "Phase 2: Value changed for " << signal_name;
                                 }
@@ -936,7 +966,7 @@ std::vector<VSSSignal> SignalProcessorDAG::process_signal_updates(
                             if (should_output) {
                                 vss_signals.push_back(result.value());
                                 node->last_output = now;
-                                node->last_output_value = VSSTypeHelper::to_string(result.value().qualified_value.value);
+                                node->last_output_value = result.value().qualified_value.value;
                                 VLOG(1) << "Phase 2: Publishing output for " << signal_name;
                             }
                         }

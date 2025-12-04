@@ -87,7 +87,16 @@ int main(int argc, char* argv[]) {
             LOG(WARNING) << "No datatype specified for signal " << signal_name << ", using UNSPECIFIED";
             mapping.datatype = ValueType::UNSPECIFIED;
         }
-        mapping.interval_ms = mapping_node["interval_ms"].as<int>(0);
+        // Output rate control
+        mapping.min_interval_ms = mapping_node["min_interval_ms"].as<int>(0);
+        mapping.max_interval_ms = mapping_node["max_interval_ms"].as<int>(10000);  // 10s default heartbeat
+        mapping.change_threshold = mapping_node["change_threshold"].as<double>(0);
+        mapping.eval_interval_ms = mapping_node["eval_interval_ms"].as<int>(0);
+
+        // Legacy support: interval_ms maps to min_interval_ms
+        if (mapping_node["interval_ms"]) {
+            mapping.min_interval_ms = mapping_node["interval_ms"].as<int>(0);
+        }
 
         // Check if this is a struct type
         if (mapping.datatype == ValueType::STRUCT) {
@@ -125,18 +134,6 @@ int main(int argc, char* argv[]) {
             }
         } else {
             mapping.transform = DirectMapping{};
-        }
-        
-        // Parse update trigger
-        if (mapping_node["update_trigger"]) {
-            std::string trigger = mapping_node["update_trigger"].as<std::string>();
-            if (trigger == "periodic") {
-                mapping.update_trigger = UpdateTrigger::PERIODIC;
-            } else if (trigger == "both") {
-                mapping.update_trigger = UpdateTrigger::BOTH;
-            } else {
-                mapping.update_trigger = UpdateTrigger::ON_DEPENDENCY;
-            }
         }
         
         // Store mapping

@@ -24,15 +24,8 @@ struct ValueMapping {
 
 using Transform = std::variant<DirectMapping, CodeTransform, ValueMapping>;
 
-enum class UpdateTrigger {
-    ON_DEPENDENCY,  // Only when dependencies update (default)
-    PERIODIC,       // Every interval_ms regardless of dependencies
-    BOTH           // On dependency update OR periodic
-};
-
 struct SignalMapping {
     ValueType datatype = ValueType::UNSPECIFIED;  // Default to unspecified, must be explicitly set
-    int interval_ms = 0;  // Default to 0 (no throttling)
     Transform transform = DirectMapping{};  // Default to direct mapping
 
     // Source information (for input signals)
@@ -41,8 +34,23 @@ struct SignalMapping {
     // DAG support
     std::vector<std::string> depends_on;  // Signal names this depends on
 
-    // Update triggering
-    UpdateTrigger update_trigger = UpdateTrigger::ON_DEPENDENCY;
+    // Output rate control
+    int min_interval_ms = 0;      // Minimum time between emissions (rate limit/downsample)
+                                  // 0 = no limit, emit as fast as changes occur
+    int max_interval_ms = 10000;  // Maximum time between emissions (heartbeat for late-joiners)
+                                  // 0 = disabled, only emit on change
+                                  // Default 10s ensures eventual consistency
+
+    // Change detection
+    double change_threshold = 0;  // Minimum change to trigger emission (deadband)
+                                  // 0 = any change triggers emission
+                                  // For numeric signals: absolute delta
+                                  // For booleans/strings: ignored (any change emits)
+
+    // Processing control (for derived signals)
+    int eval_interval_ms = 0;     // Re-evaluate transform at this interval even if deps unchanged
+                                  // 0 = only evaluate when dependencies change
+                                  // Useful for time-based transforms (derivative, decay, etc.)
 
     // Struct support (VSS 4.0)
     std::string struct_type;  // e.g., "Types.Location" (empty if not a struct)

@@ -9,6 +9,7 @@
 #include <queue>
 #include <glog/logging.h>
 #include "vssdag/mapping_types.h"
+#include <vss/types/types.hpp>
 
 namespace vssdag {
 
@@ -34,7 +35,8 @@ struct SignalNode {
     
     // Output throttling
     std::chrono::steady_clock::time_point last_output = std::chrono::steady_clock::time_point::min();
-    std::string last_output_value;  // To detect changes
+    vss::types::Value last_output_value;  // To detect value changes (stored as variant, not string)
+    vss::types::SignalQuality last_output_quality = vss::types::SignalQuality::NOT_AVAILABLE;  // To detect quality changes
     
     // Periodic processing
     std::chrono::steady_clock::time_point last_process = std::chrono::steady_clock::time_point::min();

@@ -252,12 +252,14 @@ TEST_F(SignalProcessorTest, InvalidSignalHandling) {
     speed_mapping.source.type = "dbc";
     speed_mapping.source.name = "VehicleSpeed";
     speed_mapping.datatype = ValueType::DOUBLE;
+    speed_mapping.max_interval_ms = 0;  // Disable heartbeat for testing
     mappings["Vehicle.Speed"] = speed_mapping;
 
     SignalMapping throttle_mapping;
     throttle_mapping.source.type = "dbc";
     throttle_mapping.source.name = "ThrottlePos";
     throttle_mapping.datatype = ValueType::DOUBLE;
+    throttle_mapping.max_interval_ms = 0;  // Disable heartbeat for testing
     mappings["Vehicle.Throttle"] = throttle_mapping;
 
     // Derived signal that computes power estimate
@@ -265,6 +267,7 @@ TEST_F(SignalProcessorTest, InvalidSignalHandling) {
     power_mapping.depends_on.push_back("Vehicle.Speed");
     power_mapping.depends_on.push_back("Vehicle.Throttle");
     power_mapping.datatype = ValueType::DOUBLE;
+    power_mapping.max_interval_ms = 0;  // Disable heartbeat for testing
     power_mapping.transform = CodeTransform{
         "local speed = deps['Vehicle.Speed']\n"
         "local throttle = deps['Vehicle.Throttle']\n"
@@ -323,16 +326,19 @@ TEST_F(SignalProcessorTest, InvalidSignalHandling) {
     
     // Test 3: Send not available throttle
     updates.clear();
-    updates.push_back(MakeUpdate("Vehicle.Speed", 60.0));
+    updates.push_back(MakeUpdate("Vehicle.Speed", 60.0));  // Value changes (from invalid 0.0)
     SignalUpdate na_throttle = MakeUpdate("Vehicle.Throttle", 0.0);  // Dummy value
     na_throttle.status = vss::types::SignalQuality::NOT_AVAILABLE;
     updates.push_back(na_throttle);
-    
+
     vss_signals = processor->process_signal_updates(updates);
-    
-    // Should get all signals but with appropriate status
-    EXPECT_EQ(vss_signals.size(), 3);
-    
+
+    // Speed: quality changes (INVALID -> VALID) AND value changes -> emitted
+    // Throttle: quality changes (VALID -> NOT_AVAILABLE) -> emitted
+    // PowerEstimate: quality stays INVALID (was INVALID before, still INVALID due to NA input)
+    //   -> NOT emitted because no quality change
+    EXPECT_EQ(vss_signals.size(), 2);
+
     // Check speed has valid status
     auto speed_it2 = std::find_if(vss_signals.begin(), vss_signals.end(),
         [](const VSSSignal& s) { return s.path == "Vehicle.Speed"; });
@@ -344,12 +350,6 @@ TEST_F(SignalProcessorTest, InvalidSignalHandling) {
         [](const VSSSignal& s) { return s.path == "Vehicle.Throttle"; });
     ASSERT_NE(throttle_it2, vss_signals.end());
     EXPECT_EQ(throttle_it2->qualified_value.quality, vss::types::SignalQuality::NOT_AVAILABLE);
-
-    // Check power estimate has invalid status (due to NA input)
-    auto power_it3 = std::find_if(vss_signals.begin(), vss_signals.end(),
-        [](const VSSSignal& s) { return s.path == "Vehicle.PowerEstimate"; });
-    ASSERT_NE(power_it3, vss_signals.end());
-    EXPECT_EQ(power_it3->qualified_value.quality, vss::types::SignalQuality::INVALID);
 }
 
 // Test status transitions (valid -> invalid -> NA -> valid)
@@ -556,22 +556,21 @@ TEST_F(SignalProcessorTest, FilterStrategies) {
     ASSERT_NE(propagate_it, vss_signals.end());
     EXPECT_EQ(propagate_it->qualified_value.quality, vss::types::SignalQuality::INVALID);
     
-    // Send multiple invalid updates to test hold behavior
-    for (int i = 0; i < 3; i++) {
-        updates.clear();
-        updates.push_back(invalid_hold);
-        updates.push_back(invalid_timeout);
-        updates.push_back(invalid_propagate);
-        vss_signals = processor->process_signal_updates(updates);
-        
-        // STRATEGY_HOLD should continue holding
-        hold_it = std::find_if(vss_signals.begin(), vss_signals.end(),
-            [](const VSSSignal& s) { return s.path == "Hold.Signal"; });
-        ASSERT_NE(hold_it, vss_signals.end());
-    }
-    
-    // Note: Testing actual timeout would require mocking time or sleeping,
-    // which we skip for unit tests. The timeout behavior is tested manually.
+    // With the new emission logic, subsequent identical invalid updates won't emit
+    // because neither value nor quality has changed. This is expected behavior.
+    // The STRATEGY_HOLD behavior (what value the transform outputs) is already
+    // verified above - it holds the last valid value when input goes invalid.
+    //
+    // To verify the hold continues working, we can transition back to valid:
+    updates.clear();
+    updates.push_back(MakeUpdate("Hold.Signal", 120.0));  // Back to valid
+    vss_signals = processor->process_signal_updates(updates);
+
+    // Should emit because quality changed (INVALID -> VALID)
+    hold_it = std::find_if(vss_signals.begin(), vss_signals.end(),
+        [](const VSSSignal& s) { return s.path == "Hold.Signal"; });
+    ASSERT_NE(hold_it, vss_signals.end());
+    EXPECT_EQ(hold_it->qualified_value.quality, vss::types::SignalQuality::VALID);
 }
 
 // Test lowpass filter with invalid signals
@@ -612,4 +611,208 @@ TEST_F(SignalProcessorTest, LowpassWithInvalidSignals) {
     vss_signals = processor->process_signal_updates(updates);
     EXPECT_EQ(vss_signals.size(), 1);
     EXPECT_EQ(vss_signals[0].qualified_value.quality, vss::types::SignalQuality::VALID);
+}
+
+// Test struct signal with nil dependencies (default values via 'or 0')
+TEST_F(SignalProcessorTest, StructWithNilDependencies) {
+    // Input signals
+    SignalMapping speed;
+    speed.source.type = "dbc";
+    speed.source.name = "DI_vehicleSpeed";
+    speed.datatype = ValueType::FLOAT;
+    mappings["Vehicle.Speed"] = speed;
+
+    SignalMapping accel;
+    accel.source.type = "dbc";
+    accel.source.name = "RCM_longitudinalAccel";
+    accel.datatype = ValueType::FLOAT;
+    mappings["Vehicle.Acceleration.Longitudinal"] = accel;
+
+    // Struct signal with 'or 0' fallback for nil deps
+    SignalMapping dynamics;
+    dynamics.datatype = ValueType::STRUCT;
+    dynamics.is_struct = true;
+    dynamics.struct_type = "Types.VehicleDynamics";
+    dynamics.depends_on = {"Vehicle.Speed", "Vehicle.Acceleration.Longitudinal"};
+    dynamics.min_interval_ms = 0;
+    dynamics.max_interval_ms = 0;  // Disable heartbeat for this test
+    dynamics.transform = CodeTransform{R"(
+        return {
+          Speed = deps['Vehicle.Speed'] or 0,
+          LongitudinalAcceleration = deps['Vehicle.Acceleration.Longitudinal'] or 0
+        }
+    )"};
+    mappings["Vehicle.DynamicsStruct"] = dynamics;
+
+    ASSERT_TRUE(processor->initialize(mappings));
+
+    // Test 1: No data yet - struct should NOT be emitted (deps not available)
+    auto signals1 = processor->process_signal_updates({});
+    auto struct_it1 = std::find_if(signals1.begin(), signals1.end(),
+        [](const VSSSignal& s) { return s.path == "Vehicle.DynamicsStruct"; });
+    EXPECT_EQ(struct_it1, signals1.end()) << "Struct should not emit when no deps have been received";
+
+    // Test 2: Only speed data - struct should emit with speed and accel=0
+    std::vector<SignalUpdate> updates2;
+    updates2.push_back(MakeUpdate("Vehicle.Speed", 50.0f));
+    auto signals2 = processor->process_signal_updates(updates2);
+
+    auto struct_it2 = std::find_if(signals2.begin(), signals2.end(),
+        [](const VSSSignal& s) { return s.path == "Vehicle.DynamicsStruct"; });
+    ASSERT_NE(struct_it2, signals2.end()) << "Struct should emit when at least one dep has data";
+
+    // Verify struct has fields
+    ASSERT_TRUE(std::holds_alternative<std::shared_ptr<vss::types::StructValue>>(
+        struct_it2->qualified_value.value)) << "Value should be a StructValue";
+
+    auto struct_ptr = std::get<std::shared_ptr<vss::types::StructValue>>(
+        struct_it2->qualified_value.value);
+    ASSERT_NE(struct_ptr, nullptr) << "StructValue pointer should not be null";
+
+    const auto& fields = struct_ptr->fields();
+    EXPECT_FALSE(fields.empty()) << "Struct should have fields";
+    EXPECT_TRUE(struct_ptr->has_field("Speed")) << "Struct should have Speed field";
+    EXPECT_TRUE(struct_ptr->has_field("LongitudinalAcceleration"))
+        << "Struct should have LongitudinalAcceleration field";
+
+    // Verify JSON output is not empty
+    std::string json = VSSTypeHelper::to_json(struct_it2->qualified_value.value);
+    EXPECT_NE(json, "{}") << "JSON should not be empty: got " << json;
+    EXPECT_TRUE(json.find("Speed") != std::string::npos)
+        << "JSON should contain Speed: got " << json;
+}
+
+// Test struct signal with valid dependencies
+TEST_F(SignalProcessorTest, StructWithValidDependencies) {
+    // Input signals
+    SignalMapping speed;
+    speed.source.type = "dbc";
+    speed.source.name = "DI_vehicleSpeed";
+    speed.datatype = ValueType::FLOAT;
+    mappings["Vehicle.Speed"] = speed;
+
+    SignalMapping accel;
+    accel.source.type = "dbc";
+    accel.source.name = "RCM_longitudinalAccel";
+    accel.datatype = ValueType::FLOAT;
+    mappings["Vehicle.Acceleration.Longitudinal"] = accel;
+
+    // Struct signal
+    SignalMapping dynamics;
+    dynamics.datatype = ValueType::STRUCT;
+    dynamics.is_struct = true;
+    dynamics.struct_type = "Types.VehicleDynamics";
+    dynamics.depends_on = {"Vehicle.Speed", "Vehicle.Acceleration.Longitudinal"};
+    dynamics.min_interval_ms = 0;
+    dynamics.max_interval_ms = 0;  // Disable heartbeat
+    dynamics.transform = CodeTransform{R"(
+        return {
+          Speed = deps['Vehicle.Speed'] or 0,
+          LongitudinalAcceleration = deps['Vehicle.Acceleration.Longitudinal'] or 0
+        }
+    )"};
+    mappings["Vehicle.DynamicsStruct"] = dynamics;
+
+    ASSERT_TRUE(processor->initialize(mappings));
+
+    // Provide both dependencies
+    std::vector<SignalUpdate> updates;
+    updates.push_back(MakeUpdate("Vehicle.Speed", 60.5f));
+    updates.push_back(MakeUpdate("Vehicle.Acceleration.Longitudinal", 2.5f));
+
+    auto signals = processor->process_signal_updates(updates);
+
+    auto struct_it = std::find_if(signals.begin(), signals.end(),
+        [](const VSSSignal& s) { return s.path == "Vehicle.DynamicsStruct"; });
+    ASSERT_NE(struct_it, signals.end()) << "Struct signal should be emitted";
+
+    // Verify it's a struct
+    ASSERT_TRUE(std::holds_alternative<std::shared_ptr<vss::types::StructValue>>(
+        struct_it->qualified_value.value));
+
+    auto struct_ptr = std::get<std::shared_ptr<vss::types::StructValue>>(
+        struct_it->qualified_value.value);
+    ASSERT_NE(struct_ptr, nullptr);
+
+    // Verify fields exist and have correct values
+    const auto& fields = struct_ptr->fields();
+    EXPECT_EQ(fields.size(), 2) << "Struct should have exactly 2 fields";
+
+    ASSERT_TRUE(struct_ptr->has_field("Speed"));
+    ASSERT_TRUE(struct_ptr->has_field("LongitudinalAcceleration"));
+
+    // Check JSON serialization
+    std::string json = VSSTypeHelper::to_json(struct_it->qualified_value.value);
+    EXPECT_TRUE(json.find("Speed") != std::string::npos) << "JSON: " << json;
+    EXPECT_TRUE(json.find("LongitudinalAcceleration") != std::string::npos) << "JSON: " << json;
+
+    // Log for debugging
+    std::cout << "Struct JSON: " << json << std::endl;
+}
+
+// Test struct field values are correctly extracted from Lua
+TEST_F(SignalProcessorTest, StructFieldValueExtraction) {
+    // Single input signal
+    SignalMapping input;
+    input.source.type = "dbc";
+    input.source.name = "TestInput";
+    input.datatype = ValueType::DOUBLE;
+    mappings["Test.Input"] = input;
+
+    // Struct with various field types
+    SignalMapping test_struct;
+    test_struct.datatype = ValueType::STRUCT;
+    test_struct.is_struct = true;
+    test_struct.struct_type = "TestStruct";
+    test_struct.depends_on = {"Test.Input"};
+    test_struct.min_interval_ms = 0;
+    test_struct.max_interval_ms = 0;
+    test_struct.transform = CodeTransform{R"(
+        local val = deps['Test.Input'] or 0
+        return {
+          double_field = val,
+          int_field = 42,
+          string_field = "hello",
+          bool_field = true,
+          computed = val * 2
+        }
+    )"};
+    mappings["Test.Struct"] = test_struct;
+
+    ASSERT_TRUE(processor->initialize(mappings));
+
+    std::vector<SignalUpdate> updates;
+    updates.push_back(MakeUpdate("Test.Input", 10.5));
+
+    auto signals = processor->process_signal_updates(updates);
+
+    auto struct_it = std::find_if(signals.begin(), signals.end(),
+        [](const VSSSignal& s) { return s.path == "Test.Struct"; });
+    ASSERT_NE(struct_it, signals.end());
+
+    ASSERT_TRUE(std::holds_alternative<std::shared_ptr<vss::types::StructValue>>(
+        struct_it->qualified_value.value));
+
+    auto struct_ptr = std::get<std::shared_ptr<vss::types::StructValue>>(
+        struct_it->qualified_value.value);
+
+    // Verify all fields exist
+    EXPECT_TRUE(struct_ptr->has_field("double_field"));
+    EXPECT_TRUE(struct_ptr->has_field("int_field"));
+    EXPECT_TRUE(struct_ptr->has_field("string_field"));
+    EXPECT_TRUE(struct_ptr->has_field("bool_field"));
+    EXPECT_TRUE(struct_ptr->has_field("computed"));
+
+    // Verify JSON contains all fields
+    std::string json = VSSTypeHelper::to_json(struct_it->qualified_value.value);
+    std::cout << "Multi-field struct JSON: " << json << std::endl;
+
+    EXPECT_TRUE(json.find("double_field") != std::string::npos);
+    EXPECT_TRUE(json.find("int_field") != std::string::npos);
+    EXPECT_TRUE(json.find("string_field") != std::string::npos);
+    EXPECT_TRUE(json.find("bool_field") != std::string::npos);
+    EXPECT_TRUE(json.find("computed") != std::string::npos);
+    EXPECT_TRUE(json.find("hello") != std::string::npos);
+    EXPECT_TRUE(json.find("42") != std::string::npos);
+    EXPECT_TRUE(json.find("true") != std::string::npos);
 }

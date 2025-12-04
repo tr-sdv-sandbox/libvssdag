@@ -241,13 +241,13 @@ TEST_F(EndToEndTest, TeslaVehicleDynamics) {
 
 // Test periodic signal updates
 TEST_F(EndToEndTest, PeriodicSignalUpdates) {
-    // Signal with periodic update trigger
+    // Signal with periodic evaluation
     SignalMapping heartbeat;
     heartbeat.source.type = "dbc";
     heartbeat.source.name = "SystemHeartbeat";
     heartbeat.datatype = ValueType::DOUBLE;
-    heartbeat.interval_ms = 100;  // Update every 100ms
-    heartbeat.update_trigger = UpdateTrigger::PERIODIC;
+    heartbeat.eval_interval_ms = 100;  // Re-evaluate every 100ms
+    heartbeat.max_interval_ms = 0;  // Disable heartbeat for this test
     heartbeat.transform = CodeTransform{R"(
         state['counter'] = (state['counter'] or 0) + 1
         return state['counter']

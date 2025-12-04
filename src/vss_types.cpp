@@ -1,4 +1,5 @@
 #include "vssdag/vss_types.h"
+#include <vss/types/value.hpp>
 #include <sstream>
 #include <iomanip>
 #include <cmath>
@@ -503,6 +504,19 @@ std::string VSSTypeHelper::to_json(const Value& value) {
         }
         return "null";
     }, value);
+}
+
+// Delegate to libvss-types implementations for consistent behavior across libraries
+double VSSTypeHelper::to_double(const Value& value) {
+    return vss::types::to_double(value);
+}
+
+bool VSSTypeHelper::values_equal(const Value& a, const Value& b) {
+    return vss::types::values_equal(a, b);
+}
+
+bool VSSTypeHelper::value_changed_beyond_threshold(const Value& old_val, const Value& new_val, double threshold) {
+    return vss::types::value_changed_beyond_threshold(old_val, new_val, threshold);
 }
 
 } // namespace vssdag
