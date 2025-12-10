@@ -60,6 +60,32 @@ add_subdirectory(path/to/libVSSDAG)
 target_link_libraries(your_target PRIVATE vssdag)
 ```
 
+## CAN Transport Options
+
+libvssdag supports two CAN transports via `CANTransport` enum:
+
+| Transport | Interface | Use Case |
+|-----------|-----------|----------|
+| `SOCKETCAN` | vcan0, can0 | Standard Linux CAN interfaces |
+| `AVTP` | eth0, enp0s3 | IEEE 1722 AVTP over Ethernet (for targets without vcan) |
+
+### Permissions
+
+**AVTP Transport** requires raw Ethernet sockets:
+
+| Environment | Command |
+|-------------|---------|
+| Standalone (root) | `sudo ./my_app` |
+| Standalone (capability) | `sudo setcap cap_net_raw+ep ./my_app` |
+| Container | `docker run --cap-add NET_RAW --network host ...` |
+
+**SocketCAN** requires vcan kernel module on host:
+```bash
+sudo modprobe vcan
+sudo ip link add dev vcan0 type vcan
+sudo ip link set up vcan0
+```
+
 ## API
 
 ### Core Types
@@ -119,9 +145,15 @@ auto mappings = parse_yaml("mappings.yaml");
 SignalProcessorDAG processor;
 processor.initialize(mappings);
 
-// Create CAN source
-auto can_source = std::make_unique<CANSignalSource>("can0", "vehicle.dbc", mappings);
+// Create CAN source (SocketCAN)
+auto can_source = std::make_unique<CANSignalSource>(
+    CANTransport::SOCKETCAN, "vcan0", "vehicle.dbc", mappings);
 can_source->initialize();
+
+// Or use AVTP over Ethernet (for targets without vcan)
+auto avtp_source = std::make_unique<CANSignalSource>(
+    CANTransport::AVTP, "eth0", "vehicle.dbc", mappings);
+avtp_source->initialize();
 
 // Main processing loop
 while (running) {
