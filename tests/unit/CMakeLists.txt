@@ -68,3 +68,14 @@ target_link_libraries(test_signal_processor
     GTest::gtest_main
 )
 gtest_discover_tests(test_signal_processor)
+
+# Test for AVTPCanReader
+add_executable(test_avtp_can_reader
+    test_avtp_can_reader.cpp
+)
+target_link_libraries(test_avtp_can_reader
+    vssdag
+    GTest::gtest
+    GTest::gtest_main
+)
+gtest_discover_tests(test_avtp_can_reader)

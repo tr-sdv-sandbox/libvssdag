@@ -83,6 +83,7 @@ target_sources(vssdag
     PRIVATE
         src/can/dbc_parser.cpp
         src/can/can_reader.cpp
+        src/can/avtp_can_reader.cpp
         src/can/can_source.cpp
         src/lua_mapper.cpp
         src/vss_formatter.cpp
