@@ -21,3 +21,14 @@ target_link_libraries(test_end_to_end
     GTest::gtest_main
 )
 gtest_discover_tests(test_end_to_end)
+
+# Integration test for AVTP CAN sender/receiver loopback
+add_executable(test_avtp_loopback
+    test_avtp_loopback.cpp
+)
+target_link_libraries(test_avtp_loopback
+    vssdag
+    GTest::gtest
+    GTest::gtest_main
+)
+gtest_discover_tests(test_avtp_loopback)

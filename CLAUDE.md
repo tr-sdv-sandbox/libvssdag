@@ -31,6 +31,45 @@ sudo ip link add dev vcan0 type vcan
 sudo ip link set up vcan0
 ```
 
+## CAN Transport Options
+
+libvssdag supports two CAN transports via `CANTransport` enum:
+
+| Transport | Interface | Use Case |
+|-----------|-----------|----------|
+| `SOCKETCAN` | vcan0, can0 | Standard Linux CAN interfaces |
+| `AVTP` | eth0, enp0s3 | IEEE 1722 AVTP over Ethernet (for targets without vcan) |
+
+```cpp
+// SocketCAN (default)
+CANSignalSource source(CANTransport::SOCKETCAN, "vcan0", "model3.dbc", mappings);
+
+// AVTP over Ethernet
+CANSignalSource source(CANTransport::AVTP, "eth0", "model3.dbc", mappings);
+```
+
+### AVTP Permissions
+
+AVTP uses raw Ethernet sockets which require elevated privileges:
+
+**Standalone:**
+```bash
+# Option 1: Run as root
+sudo ./my_app
+
+# Option 2: Grant CAP_NET_RAW capability (preferred)
+sudo setcap cap_net_raw+ep ./my_app
+```
+
+**Container:**
+```bash
+# Docker/Podman - add NET_RAW capability
+docker run --cap-add NET_RAW --network host myimage
+
+# Or use privileged mode (includes NET_RAW)
+docker run --privileged --network host myimage
+```
+
 ## Testing
 
 ```bash
@@ -59,13 +98,17 @@ cd examples/battery_management && ./run_battery_simulation.sh
 
 ## Architecture
 
-**Processing Pipeline:** CAN frames → SocketCANReader → DBCParser → SignalUpdate → SignalDAG → LuaMapper → VSSSignal output
+**Processing Pipeline:** CAN frames → CANReader (SocketCAN/AVTP) → DBCParser → SignalUpdate → SignalDAG → LuaMapper → VSSSignal output
 
 **Key Components:**
 - `SignalProcessorDAG` (include/vssdag/signal_processor.h) - Main orchestrator, initializes DAG from mappings, processes signal updates
 - `SignalDAG` (include/vssdag/signal_dag.h) - Dependency graph with topological sort for correct processing order
 - `LuaMapper` (include/vssdag/lua_mapper.h) - Lua state management, executes transforms with `deps[]` and `status[]` context
 - `CANSignalSource` (include/vssdag/can/can_source.h) - ISignalSource implementation for CAN bus, uses lock-free queue
+- `CANReader` (include/vssdag/can/can_reader.h) - Abstract CAN reader interface
+  - `SocketCANReader` - Linux SocketCAN implementation
+  - `AVTPCanReader` - IEEE 1722 AVTP receiver (uses Open1722)
+  - `AVTPCanSender` - IEEE 1722 AVTP sender (uses Open1722)
 - `DBCParser` (include/vssdag/can/dbc_parser.h) - DBC file parsing via dbcppp library
 
 **Processing Model:**
@@ -122,8 +165,35 @@ UpdateTrigger options: `ON_DEPENDENCY` (default), `PERIODIC`, `BOTH`
     code: "return derivative(deps['Vehicle.Speed'])"
 ```
 
+## AVTP Tools
+
+libvssdag includes command-line tools for IEEE 1722 AVTP testing:
+
+**avtp_canplayer** - Replay candump logs over AVTP (like `canplayer` but over Ethernet):
+```bash
+# Replay with original timestamps
+sudo ./tools/avtp_canplayer/avtp_canplayer -I candump.log --interface eth0
+
+# Options:
+#   --speed 2.0       Playback at 2x speed
+#   --loop            Loop continuously
+#   --no-timestamps   Send as fast as possible
+#   --interval 10     Fixed 10ms between frames
+```
+
+**avtp_test_sender** - Send individual test CAN frames:
+```bash
+sudo ./tools/avtp_test_sender/avtp_test_sender \
+    --interface eth0 --can-id 0x123 --data "01 02 03 04"
+```
+
+**Integration tests** - Test AVTP loopback with veth pair:
+```bash
+sudo ./tests/integration/run_avtp_tests.sh ./tests/test_avtp_loopback
+```
+
 ## Dependencies
 
-glog, lua5.4/5.3, yaml-cpp, nlohmann_json, dbcppp, moodycamel::concurrentqueue, libvss-types
+glog, lua5.4/5.3, yaml-cpp, nlohmann_json, dbcppp, moodycamel::concurrentqueue, libvss-types, Open1722
 
 For libvss-types: either install system-wide or place in parent directory (`../libvss-types`). See BUILD.md for full dependency installation instructions.
