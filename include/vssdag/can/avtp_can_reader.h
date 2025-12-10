@@ -66,8 +66,14 @@ private:
     /// @return Number of CAN frames extracted and delivered to handler
     int parse_avtp_packet(const uint8_t* data, size_t len);
 
-    /// @brief Parse ACF CAN message from AVTP payload
-    /// @param data ACF message data
+    /// @brief Parse ACF messages from TSCF/NTSCF payload
+    /// @param data ACF payload data
+    /// @param len Length of data
+    /// @return Number of CAN frames extracted
+    int parse_acf_messages(const uint8_t* data, size_t len);
+
+    /// @brief Parse ACF CAN message using Open1722
+    /// @param data ACF CAN message data
     /// @param len Length of data
     /// @param frame Output CAN frame
     /// @return true if valid CAN frame extracted

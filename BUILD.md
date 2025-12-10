@@ -54,7 +54,24 @@ sudo make install
 sudo ldconfig
 ```
 
-### 3. Build and Install libvss-types
+### 3. Build and Install Open1722 (AVTP support)
+
+Open1722 is required for IEEE 1722 AVTP CAN-over-Ethernet transport.
+
+```bash
+cd /tmp
+git clone --depth 1 https://github.com/COVESA/Open1722.git
+cd Open1722
+mkdir -p build && cd build
+cmake -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_INSTALL_PREFIX=/usr/local \
+      ..
+make -j$(nproc)
+sudo make install
+sudo ldconfig
+```
+
+### 4. Build and Install libvss-types
 
 **Option A: System-wide install (recommended for CI/production)**
 
@@ -187,6 +204,16 @@ If installed elsewhere, add to CMAKE_PREFIX_PATH:
 ```bash
 cmake -DCMAKE_PREFIX_PATH="/path/to/dbcppp;/usr/local" ..
 ```
+
+### Open1722 not found
+
+Ensure Open1722 is installed:
+```bash
+pkg-config --exists open1722 && echo "Found" || echo "Not found"
+ls -l /usr/local/lib/libopen1722.so
+```
+
+If not found, install from source (see step 3 above).
 
 ## Clean Build
 

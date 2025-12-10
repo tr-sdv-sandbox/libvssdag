@@ -107,7 +107,8 @@ cd examples/battery_management && ./run_battery_simulation.sh
 - `CANSignalSource` (include/vssdag/can/can_source.h) - ISignalSource implementation for CAN bus, uses lock-free queue
 - `CANReader` (include/vssdag/can/can_reader.h) - Abstract CAN reader interface
   - `SocketCANReader` - Linux SocketCAN implementation
-  - `AVTPCanReader` - IEEE 1722 AVTP over Ethernet implementation
+  - `AVTPCanReader` - IEEE 1722 AVTP receiver (uses Open1722)
+  - `AVTPCanSender` - IEEE 1722 AVTP sender (uses Open1722)
 - `DBCParser` (include/vssdag/can/dbc_parser.h) - DBC file parsing via dbcppp library
 
 **Processing Model:**
@@ -164,8 +165,35 @@ UpdateTrigger options: `ON_DEPENDENCY` (default), `PERIODIC`, `BOTH`
     code: "return derivative(deps['Vehicle.Speed'])"
 ```
 
+## AVTP Tools
+
+libvssdag includes command-line tools for IEEE 1722 AVTP testing:
+
+**avtp_canplayer** - Replay candump logs over AVTP (like `canplayer` but over Ethernet):
+```bash
+# Replay with original timestamps
+sudo ./tools/avtp_canplayer/avtp_canplayer -I candump.log --interface eth0
+
+# Options:
+#   --speed 2.0       Playback at 2x speed
+#   --loop            Loop continuously
+#   --no-timestamps   Send as fast as possible
+#   --interval 10     Fixed 10ms between frames
+```
+
+**avtp_test_sender** - Send individual test CAN frames:
+```bash
+sudo ./tools/avtp_test_sender/avtp_test_sender \
+    --interface eth0 --can-id 0x123 --data "01 02 03 04"
+```
+
+**Integration tests** - Test AVTP loopback with veth pair:
+```bash
+sudo ./tests/integration/run_avtp_tests.sh ./tests/test_avtp_loopback
+```
+
 ## Dependencies
 
-glog, lua5.4/5.3, yaml-cpp, nlohmann_json, dbcppp, moodycamel::concurrentqueue, libvss-types
+glog, lua5.4/5.3, yaml-cpp, nlohmann_json, dbcppp, moodycamel::concurrentqueue, libvss-types, Open1722
 
 For libvss-types: either install system-wide or place in parent directory (`../libvss-types`). See BUILD.md for full dependency installation instructions.

@@ -12,27 +12,14 @@
 #include <chrono>
 #include <arpa/inet.h>
 
+// Open1722 headers
+#include <avtp/CommonHeader.h>
+#include <avtp/acf/Can.h>
+#include <avtp/acf/AcfCommon.h>
+#include <avtp/acf/Ntscf.h>
+#include <avtp/acf/Tscf.h>
+
 namespace vssdag {
-
-// IEEE 1722 AVTP header offsets and constants
-namespace avtp {
-    // Common AVTP header (first 12 bytes after Ethernet header)
-    constexpr size_t HEADER_SIZE = 12;
-
-    // AVTP subtypes
-    constexpr uint8_t SUBTYPE_ACF = 0x7F;  // AVTP Control Format
-
-    // ACF message types
-    constexpr uint8_t ACF_TYPE_CAN = 0x02;        // CAN message
-    constexpr uint8_t ACF_TYPE_CAN_BRIEF = 0x03;  // CAN Brief message
-
-    // ACF CAN header size (after AVTP common header)
-    constexpr size_t ACF_CAN_HEADER_SIZE = 4;
-
-    // Maximum CAN data length
-    constexpr size_t CAN_MAX_DLEN = 8;
-    constexpr size_t CANFD_MAX_DLEN = 64;
-}
 
 AVTPCanReader::AVTPCanReader() = default;
 
@@ -160,7 +147,7 @@ void AVTPCanReader::read_loop() {
         // Skip Ethernet header (14 bytes: 6 dst + 6 src + 2 ethertype)
         // Note: ethertype is already filtered by the socket
         constexpr size_t ETH_HEADER_SIZE = 14;
-        if (static_cast<size_t>(len) < ETH_HEADER_SIZE + avtp::HEADER_SIZE) {
+        if (static_cast<size_t>(len) < ETH_HEADER_SIZE + AVTP_COMMON_HEADER_LEN) {
             stats_.invalid_packets++;
             continue;
         }
@@ -173,57 +160,103 @@ void AVTPCanReader::read_loop() {
 }
 
 int AVTPCanReader::parse_avtp_packet(const uint8_t* data, size_t len) {
-    if (len < avtp::HEADER_SIZE) {
+    if (len < AVTP_COMMON_HEADER_LEN) {
         stats_.invalid_packets++;
         return 0;
     }
 
-    // AVTP common header format:
-    // Byte 0: subtype
-    // Byte 1: sv(1) + version(3) + mr(1) + r(1) + gv(1) + tv(1)
-    // Bytes 2-3: sequence_num
-    // Bytes 4-11: stream_id (8 bytes)
+    // Get AVTP subtype from common header
+    Avtp_CommonHeader_t* common_header = (Avtp_CommonHeader_t*)data;
+    uint8_t subtype = Avtp_CommonHeader_GetSubtype(common_header);
 
-    uint8_t subtype = data[0];
-
-    // Check stream ID filter if enabled
-    if (config_.filter_stream_id) {
-        if (std::memcmp(data + 4, config_.stream_id, 8) != 0) {
-            stats_.filtered_packets++;
-            return 0;
-        }
-    }
-
-    // We're looking for ACF subtype (0x7F)
-    if (subtype != avtp::SUBTYPE_ACF) {
-        // Not ACF, could be audio/video stream - ignore
-        return 0;
-    }
-
-    // ACF header follows common header
-    // ACF format:
-    // Byte 12: acf_msg_type (upper 7 bits) + acf_msg_length MSB (lower 1 bit)
-    // Byte 13: acf_msg_length (lower 8 bits)
-    // Bytes 14+: ACF message data
-
-    size_t offset = avtp::HEADER_SIZE;
     int frames_extracted = 0;
 
-    while (offset + 2 <= len) {
-        uint8_t acf_type = data[offset] >> 1;
-        uint16_t acf_len = ((data[offset] & 0x01) << 8) | data[offset + 1];
+    // Handle TSCF (Time-Synchronous Control Format) - subtype 0x00
+    if (subtype == AVTP_SUBTYPE_TSCF) {
+        if (len < AVTP_TSCF_HEADER_LEN) {
+            stats_.invalid_packets++;
+            return 0;
+        }
 
-        // ACF length is in quadlets (4-byte units)
-        size_t msg_len = acf_len * 4;
-        offset += 2;
+        Avtp_Tscf_t* tscf = (Avtp_Tscf_t*)data;
+
+        // Check stream ID filter if enabled
+        if (config_.filter_stream_id) {
+            uint64_t stream_id = Avtp_Tscf_GetStreamId(tscf);
+            uint64_t config_stream_id = 0;
+            std::memcpy(&config_stream_id, config_.stream_id, 8);
+            if (stream_id != config_stream_id) {
+                stats_.filtered_packets++;
+                return 0;
+            }
+        }
+
+        // Get payload length and offset
+        uint16_t tscf_data_len = Avtp_Tscf_GetStreamDataLength(tscf);
+        const uint8_t* acf_data = data + AVTP_TSCF_HEADER_LEN;
+        size_t acf_remaining = std::min(static_cast<size_t>(tscf_data_len),
+                                        len - AVTP_TSCF_HEADER_LEN);
+
+        // Parse ACF messages within TSCF
+        frames_extracted = parse_acf_messages(acf_data, acf_remaining);
+    }
+    // Handle NTSCF (Non-Time-Synchronous Control Format) - subtype 0x82
+    else if (subtype == AVTP_SUBTYPE_NTSCF) {
+        if (len < AVTP_NTSCF_HEADER_LEN) {
+            stats_.invalid_packets++;
+            return 0;
+        }
+
+        Avtp_Ntscf_t* ntscf = (Avtp_Ntscf_t*)data;
+
+        // Check stream ID filter if enabled
+        if (config_.filter_stream_id) {
+            uint64_t stream_id = Avtp_Ntscf_GetStreamId(ntscf);
+            uint64_t config_stream_id = 0;
+            std::memcpy(&config_stream_id, config_.stream_id, 8);
+            if (stream_id != config_stream_id) {
+                stats_.filtered_packets++;
+                return 0;
+            }
+        }
+
+        // Get payload length and offset
+        uint16_t ntscf_data_len = Avtp_Ntscf_GetNtscfDataLength(ntscf);
+        const uint8_t* acf_data = data + AVTP_NTSCF_HEADER_LEN;
+        size_t acf_remaining = std::min(static_cast<size_t>(ntscf_data_len),
+                                        len - AVTP_NTSCF_HEADER_LEN);
+
+        // Parse ACF messages within NTSCF
+        frames_extracted = parse_acf_messages(acf_data, acf_remaining);
+    }
+    else {
+        // Unknown subtype, ignore
+        VLOG(2) << "Unknown AVTP subtype: 0x" << std::hex << static_cast<int>(subtype);
+    }
+
+    return frames_extracted;
+}
+
+int AVTPCanReader::parse_acf_messages(const uint8_t* data, size_t len) {
+    int frames_extracted = 0;
+    size_t offset = 0;
+
+    while (offset + AVTP_ACF_COMMON_HEADER_LEN <= len) {
+        // Get ACF message type and length from common ACF header
+        Avtp_AcfCommon_t* acf_common = (Avtp_AcfCommon_t*)(data + offset);
+        uint8_t acf_msg_type = Avtp_AcfCommon_GetAcfMsgType(acf_common);
+        uint16_t acf_msg_length = Avtp_AcfCommon_GetAcfMsgLength(acf_common);
+
+        // Length is in quadlets (4-byte units)
+        size_t msg_len = acf_msg_length * AVTP_QUADLET_SIZE;
 
         if (offset + msg_len > len) {
             stats_.invalid_packets++;
             break;
         }
 
-        // Check for CAN or CAN Brief message types
-        if (acf_type == avtp::ACF_TYPE_CAN || acf_type == avtp::ACF_TYPE_CAN_BRIEF) {
+        // Check for ACF CAN message types
+        if (acf_msg_type == AVTP_ACF_TYPE_CAN || acf_msg_type == AVTP_ACF_TYPE_CAN_BRIEF) {
             CANFrame frame;
             if (parse_acf_can(data + offset, msg_len, frame)) {
                 // Set timestamp
@@ -246,54 +279,43 @@ int AVTPCanReader::parse_avtp_packet(const uint8_t* data, size_t len) {
 }
 
 bool AVTPCanReader::parse_acf_can(const uint8_t* data, size_t len, CANFrame& frame) {
-    // ACF CAN message format (IEEE 1722-2016):
-    // Byte 0: pad(2) + mtv(1) + rtr(1) + eff(1) + brs(1) + fdf(1) + r(1)
-    // Byte 1: rsv(8) or upper CAN ID bits for 29-bit
-    // Byte 2-3: CAN ID (lower 16 bits) or message timestamp
-    // Byte 4: rsv(4) + dlc(4)
-    // Bytes 5-7: padding
-    // Bytes 8+: CAN data
-
-    if (len < 8) {
+    if (len < AVTP_CAN_HEADER_LEN) {
         return false;
     }
 
-    uint8_t flags = data[0];
-    bool eff = (flags >> 3) & 0x01;  // Extended frame format (29-bit ID)
-    bool rtr = (flags >> 4) & 0x01;  // Remote transmission request
+    const Avtp_Can_t* can_pdu = reinterpret_cast<const Avtp_Can_t*>(data);
 
-    // Extract CAN ID
+    // Validate the frame using Open1722
+    if (!Avtp_Can_IsValid(can_pdu, len)) {
+        return false;
+    }
+
+    // Get CAN message details using Open1722 API
+    uint32_t can_id = Avtp_Can_GetCanIdentifier(can_pdu);
+    uint8_t eff = Avtp_Can_GetEff(can_pdu);
+    uint8_t rtr = Avtp_Can_GetRtr(can_pdu);
+
+    // Set CAN ID with flags
+    frame.id = can_id;
     if (eff) {
-        // 29-bit extended ID
-        frame.id = ((data[1] & 0x1F) << 24) | (data[2] << 16) | (data[3] << 8) | data[4];
-        frame.id |= 0x80000000;  // Set EFF flag in ID
-    } else {
-        // 11-bit standard ID
-        frame.id = (data[2] << 8) | data[3];
+        frame.id |= 0x80000000;  // Extended frame format flag
     }
-
     if (rtr) {
-        frame.id |= 0x40000000;  // Set RTR flag in ID
+        frame.id |= 0x40000000;  // Remote transmission request flag
     }
 
-    // Extract DLC (data length code)
-    uint8_t dlc = data[4] & 0x0F;
-    size_t data_len = dlc;
-
-    // CAN FD can have more than 8 bytes
-    if (dlc > 8 && dlc <= 15) {
-        // CAN FD DLC encoding
-        static const size_t dlc_to_len[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 16, 20, 24, 32, 48, 64};
-        data_len = dlc_to_len[dlc];
+    // Get payload using Open1722 API
+    uint8_t payload_len = Avtp_Can_GetCanPayloadLength(can_pdu);
+    if (payload_len > 64) {
+        payload_len = 64;  // CAN-FD max
     }
 
-    // Validate we have enough data
-    if (len < 8 + data_len) {
-        return false;
+    if (payload_len > 0) {
+        const uint8_t* payload_ptr = Avtp_Can_GetPayload(can_pdu);
+        frame.data.assign(payload_ptr, payload_ptr + payload_len);
+    } else {
+        frame.data.clear();
     }
-
-    // Extract CAN data
-    frame.data.assign(data + 8, data + 8 + data_len);
 
     return true;
 }

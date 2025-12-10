@@ -51,6 +51,10 @@ else()
     message(FATAL_ERROR "dbcppp not found. Please install it first.")
 endif()
 
+# Find Open1722 (IEEE 1722 AVTP library) - required for AVTP transport
+find_package(Open1722 REQUIRED)
+message(STATUS "Found Open1722 - AVTP transport enabled")
+
 # Find libvss-types (shared dependency)
 # Try to find it first to avoid it being included twice if both
 # libvssdag and other projects in the workspace try to include it
@@ -84,6 +88,7 @@ target_sources(vssdag
         src/can/dbc_parser.cpp
         src/can/can_reader.cpp
         src/can/avtp_can_reader.cpp
+        src/can/avtp_can_sender.cpp
         src/can/can_source.cpp
         src/lua_mapper.cpp
         src/vss_formatter.cpp
@@ -113,11 +118,14 @@ target_link_libraries(vssdag
         concurrentqueue::concurrentqueue
     PRIVATE
         dbcppp
+        open1722
 )
 
 # Add subdirectories
 if(BUILD_EXAMPLES)
     add_subdirectory(examples)
+    add_subdirectory(tools/avtp_test_sender)
+    add_subdirectory(tools/avtp_canplayer)
 endif()
 
 if(BUILD_TESTS)

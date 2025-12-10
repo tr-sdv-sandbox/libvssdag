@@ -19,8 +19,9 @@ void signal_handler(int signal) {
 }
 
 void print_usage(const char* program_name) {
-    std::cout << "Usage: " << program_name << " <dbc_file> <mapping_yaml_file> <can_interface>\n";
+    std::cout << "Usage: " << program_name << " <dbc_file> <mapping_yaml_file> <can_interface> [--transport socketcan|avtp]\n";
     std::cout << "Example: " << program_name << " vehicle.dbc mappings.yaml can0\n";
+    std::cout << "         " << program_name << " vehicle.dbc mappings.yaml eth0 --transport avtp\n";
 }
 
 int main(int argc, char* argv[]) {
@@ -30,14 +31,30 @@ int main(int argc, char* argv[]) {
     FLAGS_logtostderr = true;
     FLAGS_colorlogtostderr = true;
     
-    if (argc != 4) {
+    if (argc < 4) {
         print_usage(argv[0]);
         return 1;
     }
-    
+
     const std::string dbc_file = argv[1];
     const std::string yaml_file = argv[2];
     const std::string can_interface = argv[3];
+
+    // Parse optional --transport argument
+    CANTransport transport = CANTransport::SOCKETCAN;
+    for (int i = 4; i < argc; ++i) {
+        std::string arg = argv[i];
+        if ((arg == "--transport" || arg == "-t") && i + 1 < argc) {
+            std::string transport_str = argv[++i];
+            if (transport_str == "avtp" || transport_str == "AVTP") {
+                transport = CANTransport::AVTP;
+            } else if (transport_str != "socketcan" && transport_str != "SOCKETCAN") {
+                LOG(ERROR) << "Unknown transport: " << transport_str;
+                print_usage(argv[0]);
+                return 1;
+            }
+        }
+    }
     
     // Set up signal handler
     std::signal(SIGINT, signal_handler);
@@ -47,6 +64,7 @@ int main(int argc, char* argv[]) {
     LOG(INFO) << "DBC file: " << dbc_file;
     LOG(INFO) << "Mapping file: " << yaml_file;
     LOG(INFO) << "CAN interface: " << can_interface;
+    LOG(INFO) << "Transport: " << (transport == CANTransport::AVTP ? "AVTP" : "SocketCAN");
     
     // Parse YAML directly for DAG
     YAML::Node root = YAML::LoadFile(yaml_file);
@@ -149,7 +167,7 @@ int main(int argc, char* argv[]) {
     
     // Create CAN signal source
     auto can_source = std::make_unique<vssdag::CANSignalSource>(
-        can_interface, dbc_file, dag_mappings);
+        transport, can_interface, dbc_file, dag_mappings);
     
     if (!can_source->initialize()) {
         LOG(ERROR) << "Failed to initialize CAN signal source";
