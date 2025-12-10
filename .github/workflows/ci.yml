@@ -62,11 +62,24 @@ jobs:
           sudo make install
           sudo ldconfig
 
+      - name: Build and install Open1722
+        run: |
+          mkdir -p /tmp/open1722
+          cd /tmp/open1722
+          git clone --depth 1 https://github.com/COVESA/Open1722.git .
+          mkdir -p build && cd build
+          cmake -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=/usr/local \
+            ..
+          make -j$(nproc)
+          sudo make install
+          sudo ldconfig
+
       - name: Build and install libvss-types
         run: |
           mkdir -p /tmp/libvss-types
           cd /tmp/libvss-types
-          git clone --depth 1 --branch v0.0.5 https://github.com/tr-sdv-sandbox/libvss-types.git .
+          git clone --depth 1 --branch v0.0.6 https://github.com/tr-sdv-sandbox/libvss-types.git .
           mkdir -p build && cd build
           cmake -DCMAKE_BUILD_TYPE=Release \
             -DVSS_TYPES_BUILD_TESTS=OFF \
