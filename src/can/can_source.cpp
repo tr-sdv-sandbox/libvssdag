@@ -1,12 +1,15 @@
 #include "vssdag/can/can_source.h"
+#include "vssdag/can/avtp_can_reader.h"
 #include <glog/logging.h>
 
 namespace vssdag {
 
-CANSignalSource::CANSignalSource(const std::string& interface_name,
+CANSignalSource::CANSignalSource(CANTransport transport,
+                                 const std::string& interface_name,
                                  const std::string& dbc_file_path,
                                  const std::unordered_map<std::string, SignalMapping>& mappings)
-    : interface_name_(interface_name)
+    : transport_(transport)
+    , interface_name_(interface_name)
     , dbc_file_path_(dbc_file_path)
     , mappings_(mappings) {
 }
@@ -51,10 +54,19 @@ bool CANSignalSource::initialize() {
     LOG(INFO) << "CANSignalSource monitoring " << required_can_ids_.size()
               << " CAN message IDs for " << dbc_signal_names_.size() << " DBC signals";
 
-    // Create CAN reader
-    can_reader_ = std::make_unique<SocketCANReader>();
+    // Create CAN reader based on transport type
+    switch (transport_) {
+        case CANTransport::SOCKETCAN:
+            can_reader_ = std::make_unique<SocketCANReader>();
+            break;
+        case CANTransport::AVTP:
+            can_reader_ = std::make_unique<AVTPCanReader>();
+            break;
+    }
+
     if (!can_reader_->open(interface_name_)) {
-        LOG(ERROR) << "Failed to open CAN interface: " << interface_name_;
+        LOG(ERROR) << "Failed to open interface: " << interface_name_
+                   << " (transport: " << (transport_ == CANTransport::AVTP ? "AVTP" : "SocketCAN") << ")";
         return false;
     }
     

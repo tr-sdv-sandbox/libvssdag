@@ -14,11 +14,24 @@
 
 namespace vssdag {
 
+/// @brief CAN transport type
+enum class CANTransport {
+    SOCKETCAN,  ///< Linux SocketCAN (vcan, can0, etc.)
+    AVTP        ///< IEEE 1722 AVTP over Ethernet
+};
+
 class CANSignalSource : public ISignalSource {
 public:
-    CANSignalSource(const std::string& interface_name, 
+    /// @brief Construct with specified transport type
+    /// @param transport Transport type (SOCKETCAN or AVTP)
+    /// @param interface_name Interface name (CAN interface or Ethernet interface)
+    /// @param dbc_file_path Path to DBC file
+    /// @param mappings Signal mappings from YAML
+    CANSignalSource(CANTransport transport,
+                    const std::string& interface_name,
                     const std::string& dbc_file_path,
                     const std::unordered_map<std::string, SignalMapping>& mappings);
+
     ~CANSignalSource() override;
     
     bool initialize() override;
@@ -31,10 +44,11 @@ public:
     void stop();
     
 private:
+    CANTransport transport_;
     std::string interface_name_;
     std::string dbc_file_path_;
-    
-    std::unique_ptr<SocketCANReader> can_reader_;
+
+    std::unique_ptr<CANReader> can_reader_;
     std::unique_ptr<DBCParser> dbc_parser_;
     
     // Lock-free queue for signal updates
