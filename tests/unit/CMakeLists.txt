@@ -79,3 +79,13 @@ target_link_libraries(test_avtp_can_reader
     GTest::gtest_main
 )
 gtest_discover_tests(test_avtp_can_reader)
+
+# Test for candump log parser (used by avtp_canplayer)
+add_executable(test_candump_parser
+    test_candump_parser.cpp
+)
+target_link_libraries(test_candump_parser
+    GTest::gtest
+    GTest::gtest_main
+)
+gtest_discover_tests(test_candump_parser)

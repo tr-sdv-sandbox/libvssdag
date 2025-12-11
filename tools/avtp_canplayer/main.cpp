@@ -26,7 +26,7 @@
 #include <chrono>
 #include <csignal>
 #include <atomic>
-#include <regex>
+#include <cstdio>
 
 std::atomic<bool> g_running(true);
 
@@ -67,35 +67,44 @@ struct CanLogEntry {
 
 // Parse a candump log line
 // Format: (timestamp) interface CAN_ID#DATA_HEX
+// Uses sscanf instead of std::regex for cross-platform compatibility
 bool parse_candump_line(const std::string& line, CanLogEntry& entry) {
     // Skip empty lines and comments
     if (line.empty() || line[0] == '#') {
         return false;
     }
 
-    // Regex for candump format: (timestamp) interface CAN_ID#DATA
-    static std::regex candump_regex(R"(\((\d+\.\d+)\)\s+(\S+)\s+([0-9A-Fa-f]+)#([0-9A-Fa-f]*))");
-    std::smatch match;
+    // Parse using sscanf - more portable than std::regex
+    // Format: (timestamp) interface CAN_ID#DATA
+    double timestamp;
+    char interface[64] = {0};
+    char can_id_str[16] = {0};
+    char data_str[64] = {0};
 
-    if (!std::regex_match(line, match, candump_regex)) {
+    // Try format with data
+    int parsed = sscanf(line.c_str(), "(%lf) %63s %15[^#]#%63s",
+                        &timestamp, interface, can_id_str, data_str);
+
+    if (parsed < 3) {
         return false;
     }
 
-    entry.timestamp = std::stod(match[1].str());
-    entry.interface = match[2].str();
+    entry.timestamp = timestamp;
+    entry.interface = interface;
 
     // Parse CAN ID - if > 0x7FF, it's extended
-    std::string can_id_str = match[3].str();
     entry.can_id = std::stoul(can_id_str, nullptr, 16);
     entry.extended_id = (entry.can_id > 0x7FF);
 
-    // Parse data bytes
-    std::string data_str = match[4].str();
+    // Parse data bytes (parsed == 3 means no data, which is valid)
     entry.data.clear();
-    for (size_t i = 0; i + 1 < data_str.length(); i += 2) {
-        uint8_t byte = static_cast<uint8_t>(
-            std::stoul(data_str.substr(i, 2), nullptr, 16));
-        entry.data.push_back(byte);
+    if (parsed >= 4) {
+        std::string data(data_str);
+        for (size_t i = 0; i + 1 < data.length(); i += 2) {
+            uint8_t byte = static_cast<uint8_t>(
+                std::stoul(data.substr(i, 2), nullptr, 16));
+            entry.data.push_back(byte);
+        }
     }
 
     return true;
