@@ -6,6 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Build options
 option(BUILD_EXAMPLES "Build example applications" ON)
+option(BUILD_TOOLS "Build command-line tools (avtp_canplayer, avtp_test_sender)" ON)
 option(BUILD_TESTS "Build unit tests" ON)
 option(BUILD_SHARED_LIBS "Build shared libraries" OFF)
 option(BUILD_INTEGRATION_TESTS "Build integration tests" ON)
@@ -124,6 +125,9 @@ target_link_libraries(vssdag
 # Add subdirectories
 if(BUILD_EXAMPLES)
     add_subdirectory(examples)
+endif()
+
+if(BUILD_TOOLS)
     add_subdirectory(tools/avtp_test_sender)
     add_subdirectory(tools/avtp_canplayer)
 endif()
