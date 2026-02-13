@@ -98,6 +98,5 @@ target_link_libraries(test_can_source
     vssdag
     GTest::gtest
     GTest::gtest_main
-    # GTest::gmock
 )
 gtest_discover_tests(test_can_source)

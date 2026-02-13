@@ -135,23 +135,6 @@ TEST_F(DBCParserTest, GetSignalNames) {
     EXPECT_EQ(signals.size(), 0);
 }
 
-// Test finding message ID by signal name
-TEST_F(DBCParserTest, GetMessageIdForSignal) {
-    DBCParser parser(test_dbc_file);
-    ASSERT_TRUE(parser.parse());
-    
-    auto msg_id = parser.get_message_id_for_signal("Speed");
-    ASSERT_TRUE(msg_id.has_value());
-    EXPECT_EQ(msg_id.value(), 256);
-    
-    msg_id = parser.get_message_id_for_signal("Voltage");
-    ASSERT_TRUE(msg_id.has_value());
-    EXPECT_EQ(msg_id.value(), 512);
-    
-    msg_id = parser.get_message_id_for_signal("NonExistentSignal");
-    EXPECT_FALSE(msg_id.has_value());
-}
-
 // Test decoding CAN frame with decode_message
 TEST_F(DBCParserTest, DecodeMessage) {
     DBCParser parser(test_dbc_file);
@@ -465,28 +448,6 @@ TEST_F(DBCParserTest, SameSignalInDifferentMessages) {
     std::remove(dbc_file.c_str());
 }
 
-// Test get_message_for_signal method
-TEST_F(DBCParserTest, GetMessageForSignal) {
-    DBCParser parser(test_dbc_file);
-    ASSERT_TRUE(parser.parse());
-    
-    // Test existing signal
-    const auto* msg = parser.get_message_for_signal("Speed");
-    ASSERT_NE(msg, nullptr);
-    EXPECT_EQ(msg->Name(), "TestMessage1");
-    EXPECT_EQ(msg->Id(), 256);
-    
-    // Test another signal
-    msg = parser.get_message_for_signal("Voltage");
-    ASSERT_NE(msg, nullptr);
-    EXPECT_EQ(msg->Name(), "TestMessage2");
-    EXPECT_EQ(msg->Id(), 512);
-    
-    // Test non-existent signal
-    msg = parser.get_message_for_signal("NonExistentSignal");
-    EXPECT_EQ(msg, nullptr);
-}
-
 // Test get_message_id_for_signal with message name
 TEST_F(DBCParserTest, GetMessageIdForSignalWithMessageName) {
     DBCParser parser(test_dbc_file);
@@ -515,19 +476,15 @@ TEST_F(DBCParserTest, GetMessageIdForSignalWithDuplicateNames) {
     auto dbc_file = CreateDBCFileWithSameSignal();
     DBCParser parser(dbc_file);
     ASSERT_TRUE(parser.parse());
-    
-    // Test same signal name in different messages
+
+    // Test same signal name in different messages — disambiguated by message name
     auto msg_id = parser.get_message_id_for_signal("TestMessage4", "TotalFuelUsed");
     ASSERT_TRUE(msg_id.has_value());
     EXPECT_EQ(msg_id.value(), 256);
-    
+
     msg_id = parser.get_message_id_for_signal("TestMessage5", "TotalFuelUsed");
     ASSERT_TRUE(msg_id.has_value());
     EXPECT_EQ(msg_id.value(), 512);
-    
-    // Without message name, should return first found
-    msg_id = parser.get_message_id_for_signal("TotalFuelUsed");
-    ASSERT_TRUE(msg_id.has_value());
 
     // Clean up
     std::remove(dbc_file.c_str());

@@ -6,7 +6,7 @@ mappings:
   - signal: Vehicle.Speed
     source:
       type: dbc
-      name: DI_vehicleSpeed
+      name: ID257DIspeed.DI_vehicleSpeed
     datatype: float
     interval_ms: 50
     transform:
@@ -15,7 +15,7 @@ mappings:
   - signal: Vehicle.Chassis.Brake.IsPressed
     source:
       type: dbc
-      name: DI_brakePedalState
+      name: ID118DriveSystemStatus.DI_brakePedalState
     datatype: boolean
     interval_ms: 50
     transform:
@@ -26,7 +26,7 @@ mappings:
   - signal: Vehicle.Chassis.Accelerator.Position
     source:
       type: dbc
-      name: DI_accelPedalPos
+      name: ID118DriveSystemStatus.DI_accelPedalPos
     datatype: float
     interval_ms: 50
     transform:
@@ -35,7 +35,7 @@ mappings:
   - signal: Vehicle.ADAS.ABS.IsActive
     source:
       type: dbc
-      name: ESP_absBrakeEvent
+      name: ID145ESP_status.ESP_absBrakeEvent
     datatype: boolean
     interval_ms: 100
     transform:
@@ -48,7 +48,7 @@ mappings:
   - signal: Vehicle.Chassis.SteeringWheel.Angle
     source:
       type: dbc
-      name: SteeringAngle129
+      name: ID129SteeringAngle.SteeringAngle129
     datatype: float
     interval_ms: 50
     transform:
@@ -57,7 +57,7 @@ mappings:
   - signal: Vehicle.Powertrain.Transmission.CurrentGear
     source:
       type: dbc
-      name: DI_gear
+      name: ID118DriveSystemStatus.DI_gear
     datatype: string
     interval_ms: 200
     transform:
@@ -290,7 +290,7 @@ mappings:
   - signal: Vehicle.Body.Lights.DirectionIndicator.Right.IsSignaling
     source:
       type: dbc
-      name: VCRIGHT_turnSignalStatus
+      name: ID3E3VCRIGHT_lightStatus.VCRIGHT_turnSignalStatus
     datatype: boolean
     interval_ms: 100
     transform:
@@ -303,7 +303,7 @@ mappings:
   - signal: Vehicle.Body.Lights.DirectionIndicator.Left.IsSignaling
     source:
       type: dbc
-      name: VCLEFT_turnSignalStatus
+      name: ID3E2VCLEFT_lightStatus.VCLEFT_turnSignalStatus
     datatype: boolean
     interval_ms: 100
     transform:
@@ -317,7 +317,7 @@ mappings:
   - signal: Vehicle.Body.Lights.Backup.IsOn
     source:
       type: dbc
-      name: VCRIGHT_reverseLightStatus
+      name: ID3E3VCRIGHT_lightStatus.VCRIGHT_reverseLightStatus
     datatype: boolean
     interval_ms: 100
     transform:
@@ -331,7 +331,7 @@ mappings:
   - signal: Vehicle.Powertrain.Battery.StateOfCharge.Current
     source:
       type: dbc
-      name: SOCUI292
+      name: ID292BMS_SOC.SOCUI292
     datatype: float
     interval_ms: 1000
     transform:
@@ -340,7 +340,7 @@ mappings:
   - signal: Vehicle.Powertrain.Battery.Voltage
     source:
       type: dbc
-      name: BattVoltage132
+      name: ID132HVBattAmpVolt.BattVoltage132
     datatype: float
     interval_ms: 1000
     transform:
@@ -349,7 +349,7 @@ mappings:
   - signal: Vehicle.Powertrain.Battery.Current
     source:
       type: dbc
-      name: SmoothBattCurrent132
+      name: ID132HVBattAmpVolt.SmoothBattCurrent132
     datatype: float
     interval_ms: 1000
     transform:
@@ -359,7 +359,7 @@ mappings:
   - signal: Vehicle.Powertrain.ElectricMotor.Torque
     source:
       type: dbc
-      name: DI_torqueActual
+      name: ID266DITorque.DI_torqueActual
     datatype: float
     interval_ms: 100
     transform:
@@ -368,7 +368,7 @@ mappings:
   - signal: Vehicle.Powertrain.ElectricMotor.Speed
     source:
       type: dbc
-      name: DI_motorRPM
+      name: ID266DITorque.DI_motorRPM
     datatype: float
     interval_ms: 100
     transform:
@@ -378,7 +378,7 @@ mappings:
   - signal: Vehicle.Cabin.Door.Row1.DriverSide.IsOpen
     source:
       type: dbc
-      name: VCLEFT_frontDoorState
+      name: ID122VCLEFT_doorStatus2.VCLEFT_frontDoorState
     datatype: boolean
     interval_ms: 500
     transform:
@@ -391,7 +391,7 @@ mappings:
   - signal: Vehicle.Cabin.Door.Row2.DriverSide.IsOpen
     source:
       type: dbc
-      name: VCLEFT_rearDoorState
+      name: ID122VCLEFT_doorStatus2.VCLEFT_rearDoorState
     datatype: boolean
     interval_ms: 500
     transform:
@@ -405,7 +405,7 @@ mappings:
   - signal: Vehicle.Body.Trunk.Rear.IsOpen
     source:
       type: dbc
-      name: VCRIGHT_trunkLatchStatus
+      name: ID103VCRIGHT_doorStatus.VCRIGHT_trunkLatchStatus
     datatype: boolean
     interval_ms: 500
     transform:
@@ -421,7 +421,7 @@ mappings:
   - signal: Vehicle.Cabin.HVAC.Station.Row1.Driver.Temperature
     source:
       type: dbc
-      name: HVAC_targetTempLeft
+      name: ID3C8HVAC_status.HVAC_targetTempLeft
     datatype: float
     interval_ms: 1000
     transform:
@@ -430,7 +430,7 @@ mappings:
   - signal: Vehicle.Cabin.HVAC.Station.Row1.Passenger.Temperature
     source:
       type: dbc
-      name: HVAC_targetTempRight
+      name: ID3C8HVAC_status.HVAC_targetTempRight
     datatype: float
     interval_ms: 1000
     transform:

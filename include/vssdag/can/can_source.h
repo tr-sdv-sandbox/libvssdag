@@ -4,7 +4,6 @@
 #include <memory>
 #include <thread>
 #include <atomic>
-#include <unordered_set>
 #include <unordered_map>
 #include <moodycamel/concurrentqueue.h>
 #include "vssdag/signal_source.h"
@@ -57,14 +56,10 @@ private:
     // Mappings from YAML
     std::unordered_map<std::string, SignalMapping> mappings_;
     
-    // DBC signal names we need (extracted from mappings where source.type == "dbc")
-    std::vector<std::pair<std::string, std::string>> dbc_signal_names_;
-    
-    // Map from DBC message and signal name to our signal name
-    std::unordered_map<std::string, std::unordered_map<std::string, std::string>> dbc_to_signal_name_;
-    
-    // CAN message IDs we need to process (derived from dbc_signal_names via DBC)
-    std::unordered_set<uint32_t> required_can_ids_;
+    // Map from CAN message ID to (DBC signal name → VSS signal name)
+    // Outer key: CAN ID for fast frame filtering
+    // Inner key: DBC signal name within that message
+    std::unordered_map<uint32_t, std::unordered_map<std::string, std::string>> can_id_signal_map_;
     
     // Reader thread
     std::unique_ptr<std::thread> reader_thread_;

@@ -6,7 +6,7 @@ mappings:
   - signal: cabin_temperature
     source:
       type: dbc
-      name: HVAC_CabinTemp  # DBC signal with range [-40, 85]
+      name: HVAC_Status.HVAC_CabinTemp  # DBC signal with range [-40, 85]
     datatype: float
     transform:
       code: |

@@ -6,84 +6,84 @@ mappings:
   - signal: cell1_voltage
     source:
       type: dbc
-      name: Cell1_Voltage
+      name: BMS_CellVoltages_1_3.Cell1_Voltage
     transform:
       code: "x"  # Already in V from DBC
       
   - signal: cell2_voltage
     source:
       type: dbc
-      name: Cell2_Voltage
+      name: BMS_CellVoltages_1_3.Cell2_Voltage
     transform:
       code: "x"
       
   - signal: cell3_voltage
     source:
       type: dbc
-      name: Cell3_Voltage
+      name: BMS_CellVoltages_1_3.Cell3_Voltage
     transform:
       code: "x"
       
   - signal: cell4_voltage
     source:
       type: dbc
-      name: Cell4_Voltage
+      name: BMS_CellVoltages_4_6.Cell4_Voltage
     transform:
       code: "x"
       
   - signal: cell5_voltage
     source:
       type: dbc
-      name: Cell5_Voltage
+      name: BMS_CellVoltages_4_6.Cell5_Voltage
     transform:
       code: "x"
       
   - signal: cell6_voltage
     source:
       type: dbc
-      name: Cell6_Voltage
+      name: BMS_CellVoltages_4_6.Cell6_Voltage
     transform:
       code: "x"
       
   - signal: cell7_voltage
     source:
       type: dbc
-      name: Cell7_Voltage
+      name: BMS_CellVoltages_7_9.Cell7_Voltage
     transform:
       code: "x"
       
   - signal: cell8_voltage
     source:
       type: dbc
-      name: Cell8_Voltage
+      name: BMS_CellVoltages_7_9.Cell8_Voltage
     transform:
       code: "x"
       
   - signal: cell9_voltage
     source:
       type: dbc
-      name: Cell9_Voltage
+      name: BMS_CellVoltages_7_9.Cell9_Voltage
     transform:
       code: "x"
       
   - signal: cell10_voltage
     source:
       type: dbc
-      name: Cell10_Voltage
+      name: BMS_CellVoltages_10_12.Cell10_Voltage
     transform:
       code: "x"
       
   - signal: cell11_voltage
     source:
       type: dbc
-      name: Cell11_Voltage
+      name: BMS_CellVoltages_10_12.Cell11_Voltage
     transform:
       code: "x"
       
   - signal: cell12_voltage
     source:
       type: dbc
-      name: Cell12_Voltage
+      name: BMS_CellVoltages_10_12.Cell12_Voltage
     transform:
       code: "x"
       
@@ -91,7 +91,7 @@ mappings:
   - signal: min_cell_voltage
     source:
       type: dbc
-      name: MinCellVoltage
+      name: BMS_CellStatistics.MinCellVoltage
     vss_path: Vehicle.Powertrain.TractionBattery.Cell.MinVoltage
     datatype: float
     interval_ms: 1000
@@ -101,7 +101,7 @@ mappings:
   - signal: max_cell_voltage
     source:
       type: dbc
-      name: MaxCellVoltage
+      name: BMS_CellStatistics.MaxCellVoltage
     vss_path: Vehicle.Powertrain.TractionBattery.Cell.MaxVoltage
     datatype: float
     interval_ms: 1000
