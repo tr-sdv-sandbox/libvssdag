@@ -89,3 +89,15 @@ target_link_libraries(test_candump_parser
     GTest::gtest_main
 )
 gtest_discover_tests(test_candump_parser)
+
+# Test for CANSignalSource
+add_executable(test_can_source
+    test_can_source.cpp
+)
+target_link_libraries(test_can_source
+    vssdag
+    GTest::gtest
+    GTest::gtest_main
+    # GTest::gmock
+)
+gtest_discover_tests(test_can_source)

@@ -163,6 +163,7 @@ std::vector<DBCSignalUpdate> DBCParser::decode_message_as_updates(uint32_t can_i
                     
                     DBCSignalUpdate update;
                     update.dbc_signal_name = std::string_view(sig.Name());
+                    update.dbc_message_name = std::string_view(msg.Name());
                     
                     // Look up pre-calculated signal info
                     auto info_it = signal_info_.find(sig.Name());
@@ -252,6 +253,22 @@ std::unordered_map<std::string, DBCParser::EnumMap> DBCParser::get_all_signal_en
     return all_enums;
 }
 
+const dbcppp::IMessage* DBCParser::get_message_for_signal(const std::string& signal_name) const {
+    if (!network_) {
+        return nullptr;
+    }
+    
+    for (const auto& msg : network_->Messages()) {
+        for (const auto& sig : msg.Signals()) {
+            if (sig.Name() == signal_name) {
+                return &msg;
+            }
+        }
+    }
+    
+    return nullptr;
+}
+
 std::optional<uint32_t> DBCParser::get_message_id_for_signal(const std::string& signal_name) const {
     if (!network_) {
         return std::nullopt;
@@ -264,6 +281,26 @@ std::optional<uint32_t> DBCParser::get_message_id_for_signal(const std::string& 
                 const uint32_t CAN_EFF_MASK = 0x1FFFFFFFU;
                 return msg.Id() & CAN_EFF_MASK;
             }
+        }
+    }
+    
+    return std::nullopt;
+}
+
+std::optional<uint32_t> DBCParser::get_message_id_for_signal(const std::string& message_name, const std::string& signal_name) const {
+    if (!network_) {
+        return std::nullopt;
+    }
+    
+    for (const auto& msg : network_->Messages()) {
+        if (msg.Name() == message_name) {
+            for (const auto& sig : msg.Signals()) {
+                if (sig.Name() == signal_name) {
+                    const uint32_t CAN_EFF_MASK = 0x1FFFFFFFU;
+                    return msg.Id() & CAN_EFF_MASK;
+                }
+            }
+            break;
         }
     }
     

@@ -178,6 +178,13 @@ while (running) {
   transform:
     code: "lowpass(x, 0.3)"
 
+# Direct CAN mapping specifying message and signal, returning data as-is
+- signal: Vehicle.Speed
+  source: {type: dbc, message: FuelConsumption name: TotalUsed}
+  datatype: float
+  transform:
+    code: "x"
+
 # Derived signal (dependencies trigger processing)
 - signal: Vehicle.Acceleration.Longitudinal
   depends_on: [Vehicle.Speed]
@@ -352,6 +359,3 @@ Tests cover: DAG initialization, topological sort, derived signals, structs, inv
 ## License
 
 Apache License 2.0
-
-
-

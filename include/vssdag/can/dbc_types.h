@@ -121,7 +121,8 @@ struct DBCDecodedValue {
 
 // Raw signal update from DBC decoding (before name mapping)
 struct DBCSignalUpdate {
-    std::string_view dbc_signal_name;  // Reference to DBC signal name (no allocation)
+    std::string_view dbc_message_name;  // Reference to DBC message name (no allocation)
+    std::string_view dbc_signal_name;   // Reference to DBC signal name (no allocation)
     vss::types::Value value;
     vss::types::SignalQuality status = vss::types::SignalQuality::VALID;  // Signal validity status
     bool has_enums = false;

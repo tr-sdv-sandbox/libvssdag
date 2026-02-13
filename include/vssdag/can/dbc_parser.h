@@ -35,8 +35,14 @@ public:
     // Get all signals with their enum mappings
     std::unordered_map<std::string, EnumMap> get_all_signal_enums() const;
     
+    // Get the CAN message definition that contains a specific signal
+    const dbcppp::IMessage* get_message_for_signal(const std::string& signal_name) const;
+
     // Get the CAN message ID that contains a specific signal
     std::optional<uint32_t> get_message_id_for_signal(const std::string& signal_name) const;
+    
+    // Get the CAN message ID that contains a specific signal in a specific message
+    std::optional<uint32_t> get_message_id_for_signal(const std::string& message_name, const std::string& signal_name) const;
     
     // Convert an enum value to its string representation (returns empty optional if not found)
     std::optional<std::string> get_enum_string(const std::string& signal_name, int64_t value) const;

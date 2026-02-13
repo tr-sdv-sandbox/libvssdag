@@ -29,14 +29,29 @@ bool CANSignalSource::initialize() {
     // Extract DBC signals from mappings (where source.type == "dbc")
     for (const auto& [signal_name, mapping] : mappings_) {
         if (mapping.source.type == "dbc") {
-            dbc_signal_names_.push_back(mapping.source.name);
-            dbc_to_signal_name_[mapping.source.name] = signal_name;
+            auto dot_pos = mapping.source.name.find('.');
+            if (dot_pos != std::string::npos) {
+                std::string message_name = mapping.source.name.substr(0, dot_pos);
+                std::string name = mapping.source.name.substr(dot_pos + 1);
+                dbc_signal_names_.emplace_back(name, message_name);
+                dbc_to_signal_name_[message_name][name] = signal_name;
+            } else {
+                // For signals without message prefix, we need to find the message
+                auto msg = dbc_parser_->get_message_for_signal(mapping.source.name);
+                if (msg == nullptr) {
+                    LOG(WARNING) << "DBC signal " << mapping.source.name << " not found in DBC file";
+                    continue;
+                }
+
+                dbc_signal_names_.emplace_back(mapping.source.name, msg->Name());
+                dbc_to_signal_name_[msg->Name()][mapping.source.name] = signal_name;
+            }
         }
     }
     
     // Build set of required CAN IDs from DBC signal names
-    for (const auto& dbc_signal_name : dbc_signal_names_) {
-        auto can_id = dbc_parser_->get_message_id_for_signal(dbc_signal_name);
+    for (const auto& [dbc_signal_name, message_name] : dbc_signal_names_) {
+        auto can_id = dbc_parser_->get_message_id_for_signal(message_name, dbc_signal_name);
         if (can_id.has_value()) {
             required_can_ids_.insert(can_id.value());
             VLOG(1) << "DBC signal " << dbc_signal_name << " is in CAN message ID: 0x" 
@@ -101,18 +116,21 @@ void CANSignalSource::handle_can_frame(const CANFrame& frame) {
     for (const auto& dbc_update : dbc_updates) {
         // Check if this DBC signal is one we need
         // Note: In C++17 we need to construct a string for the lookup
-        auto it = dbc_to_signal_name_.find(std::string(dbc_update.dbc_signal_name));
-        if (it != dbc_to_signal_name_.end()) {
-            // Use our signal name (not the DBC name) in the update
-            SignalUpdate update{it->second, dbc_update.value, timestamp, dbc_update.status};
-            signal_queue_.enqueue(std::move(update));
-            
-            // Log with type and status info
-            const char* status_str = (dbc_update.status == vss::types::SignalQuality::VALID) ? "valid" :
-                                    (dbc_update.status == vss::types::SignalQuality::INVALID) ? "invalid" : "not_available";
-            std::string value_str = VSSTypeHelper::to_string(dbc_update.value);
-            VLOG(3) << "Enqueued signal: " << it->second << " (DBC: " << dbc_update.dbc_signal_name
-                    << ") = " << value_str << " (" << status_str << ")";
+        auto msg_it = dbc_to_signal_name_.find(std::string(dbc_update.dbc_message_name));
+        if (msg_it != dbc_to_signal_name_.end()) {
+            auto sig_it = msg_it->second.find(std::string(dbc_update.dbc_signal_name));
+            if (sig_it != msg_it->second.end()) {
+                // Use our signal name (not the DBC name) in the update
+                SignalUpdate update{sig_it->second, dbc_update.value, timestamp, dbc_update.status};
+                signal_queue_.enqueue(std::move(update));
+                
+                // Log with type and status info
+                const char* status_str = (dbc_update.status == vss::types::SignalQuality::VALID) ? "valid" :
+                                        (dbc_update.status == vss::types::SignalQuality::INVALID) ? "invalid" : "not_available";
+                std::string value_str = VSSTypeHelper::to_string(dbc_update.value);
+                VLOG(3) << "Enqueued message: " << msg_it->first << "signal: " << sig_it->second << " (DBC: " << dbc_update.dbc_signal_name
+                        << ") = " << value_str << " (" << status_str << ")";
+            }
         }
     }
 }

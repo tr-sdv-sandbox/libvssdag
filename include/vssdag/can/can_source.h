@@ -58,10 +58,10 @@ private:
     std::unordered_map<std::string, SignalMapping> mappings_;
     
     // DBC signal names we need (extracted from mappings where source.type == "dbc")
-    std::vector<std::string> dbc_signal_names_;
+    std::vector<std::pair<std::string, std::string>> dbc_signal_names_;
     
-    // Map from DBC signal name to our signal name
-    std::unordered_map<std::string, std::string> dbc_to_signal_name_;
+    // Map from DBC message and signal name to our signal name
+    std::unordered_map<std::string, std::unordered_map<std::string, std::string>> dbc_to_signal_name_;
     
     // CAN message IDs we need to process (derived from dbc_signal_names via DBC)
     std::unordered_set<uint32_t> required_can_ids_;
