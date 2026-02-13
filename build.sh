@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -e
+
 # Build script for libVSSDAG
 # Kept in root directory for convenience
 
@@ -20,5 +22,3 @@ echo "  cd build && ctest"
 echo ""
 echo "To run the example:"
 echo "  ./build/examples/can_transformer/can-transformer <dbc_file> <mapping_yaml> <can_interface>"
-
-
