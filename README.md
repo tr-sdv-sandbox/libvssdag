@@ -173,10 +173,17 @@ while (running) {
 ```yaml
 # Direct CAN mapping with Lua filter
 - signal: Vehicle.Speed
-  source: {type: dbc, name: DI_vehicleSpeed}
+  source: {type: dbc, name: DriveTrain.DI_vehicleSpeed}
   datatype: float
   transform:
     code: "lowpass(x, 0.3)"
+
+# Direct CAN mapping specifying message and signal, returning data as-is
+- signal: Vehicle.FuelUsed
+  source: {type: dbc, name: FuelConsumption.TotalUsed}
+  datatype: float
+  transform:
+    code: "x"
 
 # Derived signal (dependencies trigger processing)
 - signal: Vehicle.Acceleration.Longitudinal
@@ -352,6 +359,3 @@ Tests cover: DAG initialization, topological sort, derived signals, structs, inv
 ## License
 
 Apache License 2.0
-
-
-

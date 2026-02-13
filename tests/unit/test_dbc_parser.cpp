@@ -66,6 +66,27 @@ protected:
         
         file.close();
     }
+
+    std::string CreateDBCFileWithSameSignal() {
+        std::string test_file = "test_extended.dbc";
+        std::ofstream file(test_file);
+        file << "VERSION \"\"\n\n";
+        file << "BS_:\n\n";
+        file << "BU_: ECU1 ECU2 EC3\n\n";
+
+        // Message with ID 0x100 (256)
+        file << "BO_ 256 TestMessage4: 8 ECU2\n";
+        file << " SG_ TotalFuelUsed : 0|32@1+ (0.5,0) [0|2105540607.5] \"L\" ECU1\n";
+        file << "\n";
+
+        // Message with ID 0x200 (512)
+        file << "BO_ 512 TestMessage5: 8 ECU3\n";
+        file << " SG_ TotalFuelUsed : 0|32@1+ (0.5,0) [0|2105540607.5] \"kg\" ECU1\n";
+        file << "\n";
+
+        file.close();
+        return test_file;
+    }
 };
 
 // Test parsing a valid DBC file
@@ -112,23 +133,6 @@ TEST_F(DBCParserTest, GetSignalNames) {
     // Check non-existent message
     signals = parser.get_signal_names(999);
     EXPECT_EQ(signals.size(), 0);
-}
-
-// Test finding message ID by signal name
-TEST_F(DBCParserTest, GetMessageIdForSignal) {
-    DBCParser parser(test_dbc_file);
-    ASSERT_TRUE(parser.parse());
-    
-    auto msg_id = parser.get_message_id_for_signal("Speed");
-    ASSERT_TRUE(msg_id.has_value());
-    EXPECT_EQ(msg_id.value(), 256);
-    
-    msg_id = parser.get_message_id_for_signal("Voltage");
-    ASSERT_TRUE(msg_id.has_value());
-    EXPECT_EQ(msg_id.value(), 512);
-    
-    msg_id = parser.get_message_id_for_signal("NonExistentSignal");
-    EXPECT_FALSE(msg_id.has_value());
 }
 
 // Test decoding CAN frame with decode_message
@@ -199,6 +203,8 @@ TEST_F(DBCParserTest, DecodeMessageAsUpdates) {
     ASSERT_TRUE(std::holds_alternative<double>(speed_it->value));
     EXPECT_NEAR(std::get<double>(speed_it->value), 100.0, 0.1);
     EXPECT_EQ(speed_it->status, vss::types::SignalQuality::VALID);
+    EXPECT_EQ(speed_it->dbc_signal_name, "Speed");
+    EXPECT_EQ(speed_it->dbc_message_name, "TestMessage1");
 }
 
 // Test decoding with invalid message ID
@@ -407,4 +413,79 @@ TEST_F(DBCParserTest, VariousBitSizePatterns) {
     
     // Clean up
     std::remove("test_extended.dbc");
+}
+
+
+// Test file with same named signals in different messages
+TEST_F(DBCParserTest, SameSignalInDifferentMessages) {
+    auto dbc_file = CreateDBCFileWithSameSignal();
+    DBCParser parser(dbc_file);
+    ASSERT_TRUE(parser.parse());
+
+    auto signals = parser.get_signal_names(256);
+    EXPECT_EQ(signals.size(), 1); // 1 or 2?
+    
+    // Check that specific signals exist
+    ASSERT_TRUE(parser.has_message(256));
+    ASSERT_TRUE(parser.has_message(512));
+
+    EXPECT_NE(std::find(signals.begin(), signals.end(), "TotalFuelUsed"), signals.end());
+
+    std::vector<uint8_t> data = {
+        0x03, 0x00, 0x00, 0x00,  // Total fuel: 1.5
+        0x00, 0x00, 0x00, 0x00
+    };
+
+    auto decoded_signals = parser.decode_message(256, data.data(), data.size());
+    ASSERT_NE(decoded_signals.find("TotalFuelUsed"), decoded_signals.end());
+    EXPECT_EQ(decoded_signals["TotalFuelUsed"].as_double(), 1.5);
+
+    decoded_signals = parser.decode_message(512, data.data(), data.size());
+    ASSERT_NE(decoded_signals.find("TotalFuelUsed"), decoded_signals.end());
+    EXPECT_EQ(decoded_signals["TotalFuelUsed"].as_double(), 1.5);
+
+    // Clean up
+    std::remove(dbc_file.c_str());
+}
+
+// Test get_message_id_for_signal with message name
+TEST_F(DBCParserTest, GetMessageIdForSignalWithMessageName) {
+    DBCParser parser(test_dbc_file);
+    ASSERT_TRUE(parser.parse());
+    
+    // Test existing signal in specific message
+    auto msg_id = parser.get_message_id_for_signal("TestMessage1", "Speed");
+    ASSERT_TRUE(msg_id.has_value());
+    EXPECT_EQ(msg_id.value(), 256);
+    
+    // Test signal in wrong message
+    msg_id = parser.get_message_id_for_signal("TestMessage2", "Speed");
+    EXPECT_FALSE(msg_id.has_value());
+    
+    // Test non-existent message
+    msg_id = parser.get_message_id_for_signal("NonExistentMessage", "Speed");
+    EXPECT_FALSE(msg_id.has_value());
+    
+    // Test non-existent signal
+    msg_id = parser.get_message_id_for_signal("TestMessage1", "NonExistentSignal");
+    EXPECT_FALSE(msg_id.has_value());
+}
+
+// Test get_message_id_for_signal with same signal names in different messages
+TEST_F(DBCParserTest, GetMessageIdForSignalWithDuplicateNames) {
+    auto dbc_file = CreateDBCFileWithSameSignal();
+    DBCParser parser(dbc_file);
+    ASSERT_TRUE(parser.parse());
+
+    // Test same signal name in different messages — disambiguated by message name
+    auto msg_id = parser.get_message_id_for_signal("TestMessage4", "TotalFuelUsed");
+    ASSERT_TRUE(msg_id.has_value());
+    EXPECT_EQ(msg_id.value(), 256);
+
+    msg_id = parser.get_message_id_for_signal("TestMessage5", "TotalFuelUsed");
+    ASSERT_TRUE(msg_id.has_value());
+    EXPECT_EQ(msg_id.value(), 512);
+
+    // Clean up
+    std::remove(dbc_file.c_str());
 }

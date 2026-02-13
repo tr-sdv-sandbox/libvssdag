@@ -35,8 +35,8 @@ public:
     // Get all signals with their enum mappings
     std::unordered_map<std::string, EnumMap> get_all_signal_enums() const;
     
-    // Get the CAN message ID that contains a specific signal
-    std::optional<uint32_t> get_message_id_for_signal(const std::string& signal_name) const;
+    // Get the CAN message ID for a signal within a specific message
+    std::optional<uint32_t> get_message_id_for_signal(const std::string& message_name, const std::string& signal_name) const;
     
     // Convert an enum value to its string representation (returns empty optional if not found)
     std::optional<std::string> get_enum_string(const std::string& signal_name, int64_t value) const;
@@ -77,8 +77,10 @@ private:
         }
     };
     
-    // Single cache for all signal information
-    std::unordered_map<std::string, SignalInfo> signal_info_;
+    // Signal information keyed by CAN message ID, then signal name.
+    // Two-level map ensures same-named signals in different messages
+    // get their own correct bit patterns for status detection.
+    std::unordered_map<uint32_t, std::unordered_map<std::string, SignalInfo>> signal_info_;
 };
 
 } // namespace vssdag

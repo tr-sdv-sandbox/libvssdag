@@ -26,33 +26,41 @@ bool CANSignalSource::initialize() {
         return false;
     }
     
-    // Extract DBC signals from mappings (where source.type == "dbc")
-    for (const auto& [signal_name, mapping] : mappings_) {
-        if (mapping.source.type == "dbc") {
-            dbc_signal_names_.push_back(mapping.source.name);
-            dbc_to_signal_name_[mapping.source.name] = signal_name;
+    // Extract DBC signals from mappings and resolve to CAN IDs.
+    // Source name must be in "Message.Signal" format.
+    size_t signal_count = 0;
+    for (const auto& [vss_name, mapping] : mappings_) {
+        if (mapping.source.type != "dbc") continue;
+
+        auto dot_pos = mapping.source.name.find('.');
+        if (dot_pos == std::string::npos) {
+            LOG(ERROR) << "DBC source name must be in 'Message.Signal' format, got: "
+                       << mapping.source.name;
+            return false;
         }
-    }
-    
-    // Build set of required CAN IDs from DBC signal names
-    for (const auto& dbc_signal_name : dbc_signal_names_) {
-        auto can_id = dbc_parser_->get_message_id_for_signal(dbc_signal_name);
-        if (can_id.has_value()) {
-            required_can_ids_.insert(can_id.value());
-            VLOG(1) << "DBC signal " << dbc_signal_name << " is in CAN message ID: 0x" 
-                    << std::hex << can_id.value();
-        } else {
-            LOG(WARNING) << "DBC signal " << dbc_signal_name << " not found in DBC file";
+
+        std::string message_name = mapping.source.name.substr(0, dot_pos);
+        std::string dbc_signal = mapping.source.name.substr(dot_pos + 1);
+
+        auto can_id = dbc_parser_->get_message_id_for_signal(message_name, dbc_signal);
+        if (!can_id.has_value()) {
+            LOG(WARNING) << "DBC signal " << mapping.source.name << " not found in DBC file";
+            continue;
         }
+
+        can_id_signal_map_[can_id.value()][dbc_signal] = vss_name;
+        ++signal_count;
+        VLOG(1) << "DBC signal " << mapping.source.name << " is in CAN message ID: 0x"
+                << std::hex << can_id.value();
     }
-    
-    if (required_can_ids_.empty()) {
+
+    if (can_id_signal_map_.empty()) {
         LOG(WARNING) << "No valid CAN message IDs found for requested signals";
-        return true; // Not an error, just no signals to monitor
+        return true;
     }
-    
-    LOG(INFO) << "CANSignalSource monitoring " << required_can_ids_.size()
-              << " CAN message IDs for " << dbc_signal_names_.size() << " DBC signals";
+
+    LOG(INFO) << "CANSignalSource monitoring " << can_id_signal_map_.size()
+              << " CAN message IDs for " << signal_count << " DBC signals";
 
     // Create CAN reader based on transport type
     switch (transport_) {
@@ -85,35 +93,31 @@ bool CANSignalSource::initialize() {
 }
 
 void CANSignalSource::handle_can_frame(const CANFrame& frame) {
-    // Quick check if we care about this CAN ID
-    if (required_can_ids_.find(frame.id) == required_can_ids_.end()) {
+    // Fast lookup by CAN ID — no work if we don't care about this message
+    auto msg_it = can_id_signal_map_.find(frame.id);
+    if (msg_it == can_id_signal_map_.end()) {
         return;
     }
 
     VLOG(3) << "Processing CAN frame ID: 0x" << std::hex << frame.id;
-    
-    // Decode the frame directly to signal updates
+
     auto dbc_updates = dbc_parser_->decode_message_as_updates(
         frame.id, frame.data.data(), frame.data.size());
-    
-    // Convert to SignalUpdate and enqueue (only the signals we care about)
+
     auto timestamp = std::chrono::steady_clock::now();
     for (const auto& dbc_update : dbc_updates) {
-        // Check if this DBC signal is one we need
-        // Note: In C++17 we need to construct a string for the lookup
-        auto it = dbc_to_signal_name_.find(std::string(dbc_update.dbc_signal_name));
-        if (it != dbc_to_signal_name_.end()) {
-            // Use our signal name (not the DBC name) in the update
-            SignalUpdate update{it->second, dbc_update.value, timestamp, dbc_update.status};
-            signal_queue_.enqueue(std::move(update));
-            
-            // Log with type and status info
-            const char* status_str = (dbc_update.status == vss::types::SignalQuality::VALID) ? "valid" :
-                                    (dbc_update.status == vss::types::SignalQuality::INVALID) ? "invalid" : "not_available";
-            std::string value_str = VSSTypeHelper::to_string(dbc_update.value);
-            VLOG(3) << "Enqueued signal: " << it->second << " (DBC: " << dbc_update.dbc_signal_name
-                    << ") = " << value_str << " (" << status_str << ")";
-        }
+        // Lookup by DBC signal name within this CAN ID
+        auto sig_it = msg_it->second.find(std::string(dbc_update.dbc_signal_name));
+        if (sig_it == msg_it->second.end()) continue;
+
+        SignalUpdate update{sig_it->second, dbc_update.value, timestamp, dbc_update.status};
+        signal_queue_.enqueue(std::move(update));
+
+        const char* status_str = (dbc_update.status == vss::types::SignalQuality::VALID) ? "valid" :
+                                (dbc_update.status == vss::types::SignalQuality::INVALID) ? "invalid" : "not_available";
+        VLOG(3) << "Enqueued signal: " << sig_it->second << " (DBC: "
+                << dbc_update.dbc_message_name << "." << dbc_update.dbc_signal_name
+                << ") = " << VSSTypeHelper::to_string(dbc_update.value) << " (" << status_str << ")";
     }
 }
 
