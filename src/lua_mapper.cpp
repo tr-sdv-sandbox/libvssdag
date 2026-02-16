@@ -153,9 +153,15 @@ VSSSignal LuaMapper::extract_vss_signal(int index) {
 
     // Get value and convert to appropriate VSS Value type based on enum
     lua_getfield(L_, index, "value");
-    if (lua_type(L_, -1) == LUA_TNUMBER) {
+    int lua_value_type = lua_type(L_, -1);
+    if (lua_value_type == LUA_TNUMBER) {
         // Use the ValueType enum to determine the correct C++ type
         switch (value_type) {
+            case ValueType::BOOL:
+                // Boolean stored as number in Lua (1=true, 0=false) - convert back
+                LOG(INFO) << "[extract_vss_signal] Converting Lua number to C++ bool (number value: " << lua_tonumber(L_, -1) << ")";
+                signal.qualified_value.value = static_cast<bool>(lua_tointeger(L_, -1) != 0);
+                break;
             case ValueType::FLOAT:
                 signal.qualified_value.value = static_cast<float>(lua_tonumber(L_, -1));
                 break;
@@ -191,11 +197,11 @@ VSSSignal LuaMapper::extract_vss_signal(int index) {
                 signal.qualified_value.value = lua_tonumber(L_, -1);
                 break;
         }
-    } else if (lua_type(L_, -1) == LUA_TBOOLEAN) {
+    } else if (lua_value_type == LUA_TBOOLEAN) {
         signal.qualified_value.value = static_cast<bool>(lua_toboolean(L_, -1));
-    } else if (lua_type(L_, -1) == LUA_TSTRING) {
+    } else if (lua_value_type == LUA_TSTRING) {
         signal.qualified_value.value = std::string(lua_tostring(L_, -1));
-    } else if (lua_type(L_, -1) == LUA_TTABLE) {
+    } else if (lua_value_type == LUA_TTABLE) {
         // Handle struct values (Lua tables)
         if (value_type == ValueType::STRUCT || value_type == ValueType::STRUCT_ARRAY) {
             // Convert Lua table to VSS struct with proper type handling
@@ -204,7 +210,7 @@ VSSSignal LuaMapper::extract_vss_signal(int index) {
             // Unknown table type, use empty monostate
             signal.qualified_value.value = std::monostate{};
         }
-    } else if (lua_type(L_, -1) == LUA_TNIL) {
+    } else if (lua_value_type == LUA_TNIL) {
         // For nil values, use empty monostate
         signal.qualified_value.value = std::monostate{};
     }
@@ -364,7 +370,7 @@ std::optional<VSSSignal> LuaMapper::extract_vss_signal_from_stack() {
         signal.qualified_value.value = static_cast<bool>(lua_toboolean(L_, -1));
     } else if (lua_value_type == LUA_TSTRING) {
         signal.qualified_value.value = std::string(lua_tostring(L_, -1));
-    } else if (lua_type(L_, -1) == LUA_TTABLE) {
+    } else if (lua_value_type == LUA_TTABLE) {
         // Handle struct values (Lua tables)
         if (value_type == ValueType::STRUCT || value_type == ValueType::STRUCT_ARRAY) {
             // Convert Lua table to VSS struct with proper type handling
@@ -373,7 +379,7 @@ std::optional<VSSSignal> LuaMapper::extract_vss_signal_from_stack() {
             // Unknown table type, use empty monostate
             signal.qualified_value.value = std::monostate{};
         }
-    } else if (lua_type(L_, -1) == LUA_TNIL) {
+    } else if (lua_value_type == LUA_TNIL) {
         // For nil values, use empty monostate
         signal.qualified_value.value = std::monostate{};
     }
