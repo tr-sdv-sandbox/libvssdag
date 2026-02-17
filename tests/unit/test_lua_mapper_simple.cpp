@@ -163,3 +163,140 @@ TEST_F(LuaMapperSimpleTest, TableReturnValues) {
     EXPECT_TRUE(result->find("42") != std::string::npos || 
                 result->find("table") != std::string::npos);
 }
+
+TEST_F(LuaMapperSimpleTest, BoolFromLuaNumber_True) {
+    std::string code = R"(
+        function map_signals()
+            vss_signals = {}
+            table.insert(vss_signals, {
+                path = "Vehicle.IsMoving",
+                type = 2,  -- ValueType::BOOL
+                value = 1,  -- Lua number representing true
+                status = 0  -- VALID
+            })
+        end
+    )";
+    
+    ASSERT_TRUE(mapper->execute_lua_string(code));
+    auto signals = mapper->map_can_signals({});
+    
+    ASSERT_EQ(signals.size(), 1);
+    EXPECT_EQ(signals[0].path, "Vehicle.IsMoving");
+    EXPECT_TRUE(std::holds_alternative<bool>(signals[0].qualified_value.value));
+    EXPECT_TRUE(std::get<bool>(signals[0].qualified_value.value));
+}
+
+TEST_F(LuaMapperSimpleTest, BoolFromLuaNumber_False) {
+    std::string code = R"(
+        function map_signals()
+            vss_signals = {}
+            table.insert(vss_signals, {
+                path = "Vehicle.IsMoving",
+                type = 2,  -- ValueType::BOOL
+                value = 0,  -- Lua number representing false
+                status = 0
+            })
+        end
+    )";
+    
+    ASSERT_TRUE(mapper->execute_lua_string(code));
+    auto signals = mapper->map_can_signals({});
+    
+    ASSERT_EQ(signals.size(), 1);
+    EXPECT_TRUE(std::holds_alternative<bool>(signals[0].qualified_value.value));
+    EXPECT_FALSE(std::get<bool>(signals[0].qualified_value.value));
+}
+
+TEST_F(LuaMapperSimpleTest, BoolFromLuaBoolean) {
+    std::string code = R"(
+        function map_signals()
+            vss_signals = {}
+            table.insert(vss_signals, {
+                path = "Vehicle.IsMoving",
+                type = 2,  -- ValueType::BOOL
+                value = true,  -- Native Lua boolean
+                status = 0
+            })
+        end
+    )";
+    
+    ASSERT_TRUE(mapper->execute_lua_string(code));
+    auto signals = mapper->map_can_signals({});
+    
+    ASSERT_EQ(signals.size(), 1);
+    EXPECT_TRUE(std::holds_alternative<bool>(signals[0].qualified_value.value));
+    EXPECT_TRUE(std::get<bool>(signals[0].qualified_value.value));
+}
+
+TEST_F(LuaMapperSimpleTest, NonZeroNumberConvertsToTrue) {
+    std::string code = R"(
+        function map_signals()
+            vss_signals = {}
+            table.insert(vss_signals, {
+                path = "Vehicle.IsMoving",
+                type = 2,  -- ValueType::BOOL
+                value = 42,  -- Non-zero should convert to true
+                status = 0
+            })
+        end
+    )";
+    
+    ASSERT_TRUE(mapper->execute_lua_string(code));
+    auto signals = mapper->map_can_signals({});
+    
+    ASSERT_EQ(signals.size(), 1);
+    EXPECT_TRUE(std::holds_alternative<bool>(signals[0].qualified_value.value));
+    EXPECT_TRUE(std::get<bool>(signals[0].qualified_value.value));
+}
+
+TEST_F(LuaMapperSimpleTest, MixedTypes) {
+    std::string code = R"(
+        function map_signals()
+            vss_signals = {}
+            table.insert(vss_signals, {
+                path = "Vehicle.IsMoving",
+                type = 2,  -- BOOL
+                value = 1,
+                status = 0
+            })
+            table.insert(vss_signals, {
+                path = "Vehicle.Speed",
+                type = 12,  -- DOUBLE
+                value = 88.5,
+                status = 0
+            })
+            table.insert(vss_signals, {
+                path = "Vehicle.Gear",
+                type = 5,  -- INT32
+                value = 4,
+                status = 0
+            })
+        end
+    )";
+    
+    ASSERT_TRUE(mapper->execute_lua_string(code));
+    auto signals = mapper->map_can_signals({});
+    
+    ASSERT_EQ(signals.size(), 3);
+    
+    // Check bool
+    auto bool_sig = std::find_if(signals.begin(), signals.end(),
+        [](const VSSSignal& s) { return s.path == "Vehicle.IsMoving"; });
+    ASSERT_NE(bool_sig, signals.end());
+    EXPECT_TRUE(std::holds_alternative<bool>(bool_sig->qualified_value.value));
+    EXPECT_TRUE(std::get<bool>(bool_sig->qualified_value.value));
+    
+    // Check double
+    auto double_sig = std::find_if(signals.begin(), signals.end(),
+        [](const VSSSignal& s) { return s.path == "Vehicle.Speed"; });
+    ASSERT_NE(double_sig, signals.end());
+    EXPECT_TRUE(std::holds_alternative<double>(double_sig->qualified_value.value));
+    EXPECT_DOUBLE_EQ(std::get<double>(double_sig->qualified_value.value), 88.5);
+    
+    // Check int32
+    auto int_sig = std::find_if(signals.begin(), signals.end(),
+        [](const VSSSignal& s) { return s.path == "Vehicle.Gear"; });
+    ASSERT_NE(int_sig, signals.end());
+    EXPECT_TRUE(std::holds_alternative<int32_t>(int_sig->qualified_value.value));
+    EXPECT_EQ(std::get<int32_t>(int_sig->qualified_value.value), 4);
+}
