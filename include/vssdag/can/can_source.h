@@ -31,6 +31,14 @@ public:
                     const std::string& dbc_file_path,
                     const std::unordered_map<std::string, SignalMapping>& mappings);
 
+    /// @brief Construct allowing injection of CANReader
+    /// @param can_reader Type implementing CANReader
+    /// @param dbc_file_path Path to DBC file
+    /// @param mappings Signal mappings from YAML
+    CANSignalSource(std::unique_ptr<CANReader> can_reader,
+                                 const std::string& dbc_file_path,
+                                 const std::unordered_map<std::string, SignalMapping>& mappings);
+
     ~CANSignalSource() override;
     
     bool initialize() override;
@@ -64,7 +72,7 @@ private:
     // Reader thread
     std::unique_ptr<std::thread> reader_thread_;
     std::atomic<bool> running_{false};
-    
+
     // Callback for CAN frames
     void handle_can_frame(const CANFrame& frame);
 };
