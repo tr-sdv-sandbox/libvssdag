@@ -1,7 +1,8 @@
-#include "vssdag/can/can_reader.h"
-#include "vssdag/can/can_source.h"
+#pragma once
 
-namespace vssdag {
+#include "vssdag/can/can_reader.h"
+
+namespace vssdag::utils {
 
 class FakeCANReader : public CANReader {
 public:
@@ -16,4 +17,4 @@ public:
     }
 };
 
-} // namespace vssdag
+} // namespace vssdag::test

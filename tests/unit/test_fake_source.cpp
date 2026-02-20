@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 #include "vssdag/can/can_source.h"
 #include "vssdag/can/can_reader.h"
-#include "vssdag/can/fake_can_reader.h"
+#include "vssdag/test/fake_can_reader.h"
 #include "vssdag/mapping_types.h"
 #include <fstream>
 
@@ -51,9 +51,9 @@ protected:
         return mappings;
     }
 
-    std::pair<std::unique_ptr<CANSignalSource>, FakeCANReader*> MakeSource() {
+    std::pair<std::unique_ptr<CANSignalSource>, vssdag::utils::FakeCANReader*> MakeSource() {
         auto mappings = CreateTestMappings();
-        auto reader = std::make_unique<FakeCANReader>();
+        auto reader = std::make_unique<vssdag::utils::FakeCANReader>();
         auto* reader_ptr = reader.get();
         auto source = std::make_unique<CANSignalSource>(std::move(reader), test_dbc_file, mappings);
         return {std::move(source), reader_ptr};

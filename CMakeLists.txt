@@ -10,6 +10,7 @@ option(BUILD_TOOLS "Build command-line tools (avtp_canplayer, avtp_test_sender)"
 option(BUILD_TESTS "Build unit tests" ON)
 option(BUILD_SHARED_LIBS "Build shared libraries" OFF)
 option(BUILD_INTEGRATION_TESTS "Build integration tests" ON)
+option(BUILD_UTILS "Build test utilities library" ON)
 
 # Find required packages
 find_package(Threads REQUIRED)
@@ -130,6 +131,10 @@ endif()
 if(BUILD_TOOLS)
     add_subdirectory(tools/avtp_test_sender)
     add_subdirectory(tools/avtp_canplayer)
+endif()
+
+if(BUILD_UTILS)
+    add_subdirectory(utils)
 endif()
 
 if(BUILD_TESTS)

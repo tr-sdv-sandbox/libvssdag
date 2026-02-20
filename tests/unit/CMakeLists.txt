@@ -107,6 +107,7 @@ add_executable(test_fake_source
 )
 target_link_libraries(test_fake_source
     vssdag
+    vssdag_test_utils
     GTest::gtest
     GTest::gtest_main
 )
