@@ -133,10 +133,6 @@ if(BUILD_TOOLS)
     add_subdirectory(tools/avtp_canplayer)
 endif()
 
-if(BUILD_UTILS)
-    add_subdirectory(utils)
-endif()
-
 if(BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests)
