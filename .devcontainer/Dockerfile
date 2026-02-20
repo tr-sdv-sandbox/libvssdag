@@ -11,6 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     build-essential \
     cmake \
+    pkg-config \
     libgoogle-glog-dev \
     nlohmann-json3-dev \
     libyaml-cpp-dev \
@@ -19,7 +20,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgrpc++1.51t64 \
     libgflags2.2 \
     libyaml-cpp0.8 \
-    liblua5.4-0 \
+    liblua5.3-dev \
     libpaho-mqtt1.3 \
     libpaho-mqttpp3-1 \
     libmosquitto1 \
