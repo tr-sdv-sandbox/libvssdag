@@ -96,6 +96,7 @@ jobs:
           cd build
           cmake -DCMAKE_BUILD_TYPE=Release \
                 -DBUILD_TESTS=ON \
+                -DBUILD_UTILS=ON \
                 -DBUILD_INTEGRATION_TESTS=ON \
                 -DBUILD_EXAMPLES=ON \
                 -DCMAKE_PREFIX_PATH=/usr/local \

@@ -100,3 +100,15 @@ target_link_libraries(test_can_source
     GTest::gtest_main
 )
 gtest_discover_tests(test_can_source)
+
+# Test for FakeSource
+add_executable(test_fake_source
+    test_fake_source.cpp
+)
+target_link_libraries(test_fake_source
+    vssdag
+    vssdag_test_utils
+    GTest::gtest
+    GTest::gtest_main
+)
+gtest_discover_tests(test_fake_source)

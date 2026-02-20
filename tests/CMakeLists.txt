@@ -3,6 +3,9 @@ cmake_minimum_required(VERSION 3.14)
 # Set test binary output directory
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
 
+# Test utilities
+add_subdirectory(utils)
+
 # Unit tests
 if(BUILD_TESTS)
     add_subdirectory(unit)

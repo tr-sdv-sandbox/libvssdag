@@ -14,6 +14,14 @@ CANSignalSource::CANSignalSource(CANTransport transport,
     , mappings_(mappings) {
 }
 
+CANSignalSource::CANSignalSource(std::unique_ptr<CANReader> can_reader,
+                                 const std::string& dbc_file_path,
+                                 const std::unordered_map<std::string, SignalMapping>& mappings)
+    : can_reader_(std::move(can_reader))
+    , dbc_file_path_(dbc_file_path)
+    , mappings_(mappings) {
+}
+
 CANSignalSource::~CANSignalSource() {
     stop();
 }
@@ -62,14 +70,16 @@ bool CANSignalSource::initialize() {
     LOG(INFO) << "CANSignalSource monitoring " << can_id_signal_map_.size()
               << " CAN message IDs for " << signal_count << " DBC signals";
 
-    // Create CAN reader based on transport type
-    switch (transport_) {
-        case CANTransport::SOCKETCAN:
-            can_reader_ = std::make_unique<SocketCANReader>();
-            break;
-        case CANTransport::AVTP:
-            can_reader_ = std::make_unique<AVTPCanReader>();
-            break;
+    // Create CAN reader based on transport type if not provided
+    if (!can_reader_) {
+        switch (transport_) {
+            case CANTransport::SOCKETCAN:
+                can_reader_ = std::make_unique<SocketCANReader>();
+                break;
+            case CANTransport::AVTP:
+                can_reader_ = std::make_unique<AVTPCanReader>();
+                break;
+        }
     }
 
     if (!can_reader_->open(interface_name_)) {
