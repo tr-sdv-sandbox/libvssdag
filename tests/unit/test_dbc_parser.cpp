@@ -67,6 +67,24 @@ protected:
         file.close();
     }
 
+    void CreateMuxedDBCFile() {
+        std::ofstream file("test_muxed.dbc");
+        file << "VERSION \"\"\n\n";
+        file << "BS_:\n\n";
+        file << "BU_: ECU1\n\n";
+        
+        // Message with multiplexed signals
+        file << "BO_ 1280 MuxedMessage: 8 ECU1\n";
+        file << " SG_ MuxSwitch M : 0|2@1+ (1,0) [0|3] \"\" ECU1\n";  // Mux switch signal
+        file << " SG_ Signal_Mode0 m0 : 8|16@1+ (0.1,0) [0|6553.5] \"rpm\" ECU1\n";  // Active when MuxSwitch=0
+        file << " SG_ Signal_Mode1 m1 : 8|16@1+ (0.01,0) [0|655.35] \"V\" ECU1\n";   // Active when MuxSwitch=1
+        file << " SG_ Signal_Mode2 m2 : 8|8@1+ (1,-40) [-40|215] \"degC\" ECU1\n";   // Active when MuxSwitch=2
+        file << " SG_ CommonSignal : 24|8@1+ (1,0) [0|255] \"\" ECU1\n";  // Always active
+        file << "\n";
+        
+        file.close();
+    }
+
     std::string CreateDBCFileWithSameSignal() {
         std::string test_file = "test_extended.dbc";
         std::ofstream file(test_file);
@@ -488,4 +506,115 @@ TEST_F(DBCParserTest, GetMessageIdForSignalWithDuplicateNames) {
 
     // Clean up
     std::remove(dbc_file.c_str());
+}
+
+// Test multiplexed signal decoding - Mode 0
+TEST_F(DBCParserTest, MuxedSignalsMode0) {
+    CreateMuxedDBCFile();
+    DBCParser parser("test_muxed.dbc");
+    ASSERT_TRUE(parser.parse());
+    
+    // MuxSwitch=0, Signal_Mode0 should be decoded
+    std::vector<uint8_t> data = {
+        0x00,        // MuxSwitch = 0
+        0xE8, 0x03,  // Signal_Mode0 = 1000 -> 100.0 rpm
+        0x42,        // CommonSignal = 66
+        0x00, 0x00, 0x00, 0x00
+    };
+    
+    auto updates = parser.decode_message_as_updates(1280, data.data(), data.size());
+    
+    // Should have MuxSwitch, Signal_Mode0, and CommonSignal
+    EXPECT_EQ(updates.size(), 3);
+    
+    auto mode0_it = std::find_if(updates.begin(), updates.end(),
+        [](const DBCSignalUpdate& u) { return std::string(u.dbc_signal_name) == "Signal_Mode0"; });
+    ASSERT_NE(mode0_it, updates.end());
+    EXPECT_NEAR(std::get<double>(mode0_it->value), 100.0, 0.1);
+    
+    // Signal_Mode1 and Signal_Mode2 should NOT be present
+    auto mode1_it = std::find_if(updates.begin(), updates.end(),
+        [](const DBCSignalUpdate& u) { return std::string(u.dbc_signal_name) == "Signal_Mode1"; });
+    EXPECT_EQ(mode1_it, updates.end());
+    
+    std::remove("test_muxed.dbc");
+}
+
+// Test multiplexed signal decoding - Mode 1
+TEST_F(DBCParserTest, MuxedSignalsMode1) {
+    CreateMuxedDBCFile();
+    DBCParser parser("test_muxed.dbc");
+    ASSERT_TRUE(parser.parse());
+    
+    // MuxSwitch=1, Signal_Mode1 should be decoded
+    std::vector<uint8_t> data = {
+        0x01,        // MuxSwitch = 1
+        0x10, 0x27,  // Signal_Mode1 = 10000 -> 100.00 V
+        0x42,        // CommonSignal = 66
+        0x00, 0x00, 0x00, 0x00
+    };
+    
+    auto updates = parser.decode_message_as_updates(1280, data.data(), data.size());
+    EXPECT_EQ(updates.size(), 3);
+    
+    auto mode1_it = std::find_if(updates.begin(), updates.end(),
+        [](const DBCSignalUpdate& u) { return std::string(u.dbc_signal_name) == "Signal_Mode1"; });
+    ASSERT_NE(mode1_it, updates.end());
+    EXPECT_NEAR(std::get<double>(mode1_it->value), 100.0, 0.01);
+    
+    std::remove("test_muxed.dbc");
+}
+
+// Test multiplexed signal decoding - Mode 2
+TEST_F(DBCParserTest, MuxedSignalsMode2) {
+    CreateMuxedDBCFile();
+    DBCParser parser("test_muxed.dbc");
+    ASSERT_TRUE(parser.parse());
+    
+    // MuxSwitch=2, Signal_Mode2 should be decoded
+    std::vector<uint8_t> data = {
+        0x02,        // MuxSwitch = 2
+        0x55,        // Signal_Mode2 = 85 -> 45 degC (85-40)
+        0x00, 0x00,  // Unused bits for Signal_Mode2
+        0x42,        // CommonSignal = 66
+        0x00, 0x00, 0x00
+    };
+    
+    auto updates = parser.decode_message_as_updates(1280, data.data(), data.size());
+    EXPECT_EQ(updates.size(), 3);
+    
+    auto mode2_it = std::find_if(updates.begin(), updates.end(),
+        [](const DBCSignalUpdate& u) { return std::string(u.dbc_signal_name) == "Signal_Mode2"; });
+    ASSERT_NE(mode2_it, updates.end());
+    EXPECT_NEAR(std::get<double>(mode2_it->value), 45.0, 0.1);
+    
+    std::remove("test_muxed.dbc");
+}
+
+// Test multiplexed signal decoding - Invalid mux value
+TEST_F(DBCParserTest, MuxedSignalsInvalidMode) {
+    CreateMuxedDBCFile();
+    DBCParser parser("test_muxed.dbc");
+    ASSERT_TRUE(parser.parse());
+    
+    // MuxSwitch=3 (no multiplexed signals defined for this value)
+    std::vector<uint8_t> data = {
+        0x03,        // MuxSwitch = 3 (invalid)
+        0xE8, 0x03,  // Data that would be Signal_Mode0 if mux was 0
+        0x42,        // CommonSignal = 66
+        0x00, 0x00, 0x00, 0x00
+    };
+    
+    auto updates = parser.decode_message_as_updates(1280, data.data(), data.size());
+    
+    // Should only have MuxSwitch and CommonSignal, no multiplexed signals
+    EXPECT_EQ(updates.size(), 2);
+    
+    // Verify no multiplexed signals are present
+    for (const auto& update : updates) {
+        std::string name(update.dbc_signal_name);
+        EXPECT_TRUE(name == "MuxSwitch" || name == "CommonSignal");
+    }
+    
+    std::remove("test_muxed.dbc");
 }

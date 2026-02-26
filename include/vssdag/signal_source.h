@@ -35,7 +35,6 @@ public:
     
     // Get list of signals this source exports
     virtual std::vector<std::string> get_exported_signals() const = 0; 
-    };
-}
-    
+};
 
+} // namespace vssdag
