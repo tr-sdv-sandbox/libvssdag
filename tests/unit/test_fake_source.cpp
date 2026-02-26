@@ -28,6 +28,10 @@ protected:
         file << "BO_ 256 TestMessage: 8 ECU1\n";
         file << " SG_ Speed : 0|16@1+ (0.1,0) [0|6553.5] \"km/h\" ECU1\n";
         file << " SG_ Temperature : 16|8@1+ (1,0) [0|255] \"degC\" ECU1\n";
+        file << "BO_ 512 TestMessage2: 8 ECU1\n";
+        file << " SG_ Unit M : 0|2@1+ (1,0) [0|3] \"\" ECU2\n";
+        file << " SG_ Distance_KM m0 : 8|16@1+ (1,0) [0|64255] \"km\"  ECU2\n";
+        file << " SG_ Distance_MI m1 : 8|16@1+ (1,0) [0|64255] \"mi\"  ECU2\n";
         file.close();
     }
 
@@ -47,6 +51,13 @@ protected:
         temp_mapping.source.type = "dbc";
         temp_mapping.source.name = "TestMessage.Temperature";
         mappings["Vehicle.Temperature"] = temp_mapping;
+
+        SignalMapping dist_km_mapping;
+        dist_km_mapping.datatype = ValueType::FLOAT;
+        dist_km_mapping.transform = DirectMapping{};
+        dist_km_mapping.source.type = "dbc";
+        dist_km_mapping.source.name = "TestMessage2.Distance_KM";
+        mappings["Vehicle.DistanceTraveled"] = dist_km_mapping;
 
         return mappings;
     }
@@ -109,4 +120,24 @@ TEST_F(FakeSourceTest, VerifySignalValues) {
             EXPECT_FLOAT_EQ(temp_val, 25.0);
         }
     }
+}
+
+TEST_F(FakeSourceTest, VerifyMuxSignalValues) {
+    auto [source, reader] = MakeSource();
+    ASSERT_TRUE(source->initialize());
+
+    reader->inject_frame(CANFrame{512, {0x00, 0x01, 0x01, 0x0, 0x0, 0x0, 0x0, 0x0}, 0});
+
+    auto updates = source->poll();
+    ASSERT_EQ(updates.size(), 1);
+
+    auto update1 = updates[0];
+    EXPECT_STREQ(update1.signal_name.c_str(), "Vehicle.DistanceTraveled");
+    auto dist_val = vss::types::to_double(update1.value);
+    EXPECT_FLOAT_EQ(dist_val, 257);
+
+    reader->inject_frame(CANFrame{512, {0x01, 0x01, 0x01, 0x0, 0x0, 0x0, 0x0, 0x0}, 0});
+
+    updates = source->poll();
+    ASSERT_EQ(updates.size(), 0);
 }

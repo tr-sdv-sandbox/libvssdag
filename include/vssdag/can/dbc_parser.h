@@ -81,6 +81,9 @@ private:
     // Two-level map ensures same-named signals in different messages
     // get their own correct bit patterns for status detection.
     std::unordered_map<uint32_t, std::unordered_map<std::string, SignalInfo>> signal_info_;
+    
+    // Helper method to decode a single signal to DBCSignalUpdate
+    std::optional<DBCSignalUpdate> decode_signal_as_update(const dbcppp::ISignal& sig, const std::string& msg_name, const uint8_t* data, uint32_t can_id_masked, std::optional<uint64_t> mux_value = std::nullopt) const;
 };
 
 } // namespace vssdag
