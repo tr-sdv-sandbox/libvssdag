@@ -352,6 +352,107 @@ TEST_F(SignalProcessorTest, InvalidSignalHandling) {
     EXPECT_EQ(throttle_it2->qualified_value.quality, vss::types::SignalQuality::NOT_AVAILABLE);
 }
 
+TEST_F(SignalProcessorTest, NoSignalHandling) {
+    SignalMapping speed_mapping;
+    speed_mapping.datatype = ValueType::FLOAT;
+    speed_mapping.transform = DirectMapping{};
+    speed_mapping.source.type = "dbc";
+    speed_mapping.source.name = "TestMessage.Speed";
+    mappings["Vehicle.Speed"] = speed_mapping;
+
+    SignalMapping temp_mapping;
+    temp_mapping.datatype = ValueType::FLOAT;
+    temp_mapping.transform = CodeTransform{R"(
+        if deps['Vehicle.Speed'] < 10 then
+            my_status = STATUS_NO_SIGNAL
+            return nil
+        else
+            return x
+        end
+    )"};
+    temp_mapping.depends_on.push_back("Vehicle.Speed");
+    temp_mapping.source.type = "dbc";
+    temp_mapping.source.name = "TestMessage.Temperature";
+    mappings["Vehicle.TemperatureAtSpeed"] = temp_mapping;
+
+    ASSERT_TRUE(processor->initialize(mappings));
+
+    // Create signal update
+    std::vector<SignalUpdate> updates;
+    updates.push_back(MakeUpdate("Vehicle.Speed", 5.0));
+    updates.push_back(MakeUpdate("Vehicle.TemperatureAtSpeed", 25.0));
+
+    auto vss_signals = processor->process_signal_updates(updates);
+    EXPECT_EQ(vss_signals.size(), 1);
+    EXPECT_EQ(vss_signals[0].path, "Vehicle.Speed");
+
+    std::vector<SignalUpdate> updates_both;
+    updates_both.push_back(MakeUpdate("Vehicle.Speed", 15.0));
+    updates_both.push_back(MakeUpdate("Vehicle.TemperatureAtSpeed", 25.0));
+
+    auto vss_signals_both = processor->process_signal_updates(updates_both);
+    EXPECT_EQ(vss_signals_both.size(), 2);
+    EXPECT_EQ(vss_signals_both[0].path, "Vehicle.Speed");
+    EXPECT_EQ(vss_signals_both[1].path, "Vehicle.TemperatureAtSpeed");
+}
+
+TEST_F(SignalProcessorTest, NoSignalDependency) {
+    SignalMapping speed_mapping;
+    speed_mapping.datatype = ValueType::FLOAT;
+    speed_mapping.transform = CodeTransform{R"(
+        if x < 2 then
+            my_status = STATUS_NO_SIGNAL
+            return nil
+        else
+            return x
+        end
+    )"};
+    speed_mapping.source.type = "dbc";
+    speed_mapping.source.name = "TestMessage.Speed";
+    mappings["Vehicle.Speed"] = speed_mapping;
+
+    SignalMapping temp_mapping;
+    temp_mapping.datatype = ValueType::FLOAT;
+    temp_mapping.transform = CodeTransform{R"(
+        if deps['Vehicle.Speed'] < 10 then
+            my_status = STATUS_NO_SIGNAL
+            return nil
+        else
+            return x
+        end
+    )"};
+    temp_mapping.depends_on.push_back("Vehicle.Speed");
+    temp_mapping.source.type = "dbc";
+    temp_mapping.source.name = "TestMessage.Temperature";
+    mappings["Vehicle.TemperatureAtSpeed"] = temp_mapping;
+
+    ASSERT_TRUE(processor->initialize(mappings));
+
+    // speed too slow, no speed output
+    std::vector<SignalUpdate> updates_still;
+    updates_still.push_back(MakeUpdate("Vehicle.Speed", 0.0));
+    updates_still.push_back(MakeUpdate("Vehicle.TemperatureAtSpeed", 25.0));
+    auto vss_still = processor->process_signal_updates(updates_still);
+    EXPECT_EQ(vss_still.size(), 0);
+
+    // speed output, but no temperature
+    std::vector<SignalUpdate> updates_slow;
+    updates_slow.push_back(MakeUpdate("Vehicle.Speed", 5.0));
+    updates_slow.push_back(MakeUpdate("Vehicle.TemperatureAtSpeed", 25.0));
+    auto vss_slow = processor->process_signal_updates(updates_slow);
+    EXPECT_EQ(vss_slow.size(), 1);
+    EXPECT_EQ(vss_slow[0].path, "Vehicle.Speed");
+
+    // both should output
+    std::vector<SignalUpdate> updates_fast;
+    updates_fast.push_back(MakeUpdate("Vehicle.Speed", 15.0));
+    updates_fast.push_back(MakeUpdate("Vehicle.TemperatureAtSpeed", 25.0));
+    auto vss_fast = processor->process_signal_updates(updates_fast);
+    EXPECT_EQ(vss_fast.size(), 2);
+    EXPECT_EQ(vss_fast[0].path, "Vehicle.Speed");
+    EXPECT_EQ(vss_fast[1].path, "Vehicle.TemperatureAtSpeed");
+}
+
 // Test status transitions (valid -> invalid -> NA -> valid)
 TEST_F(SignalProcessorTest, StatusTransitions) {
     SignalMapping sensor_mapping;
