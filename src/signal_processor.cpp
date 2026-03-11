@@ -90,6 +90,7 @@ STATUS_INVALID = 2
 STATUS_NOT_AVAILABLE = 3
 STATUS_STALE = 4
 STATUS_OUT_OF_RANGE = 5
+STATUS_NO_SIGNAL = 6       -- Prevents signal to be delivered
 
 -- Invalid signal handling strategies
 STRATEGY_PROPAGATE = 0     -- Return nil immediately (default)
@@ -124,6 +125,10 @@ function create_vss_signal(path, value, datatype, status)
     -- datatype is now an integer (ValueType enum value from C++)
     -- Default status to STATUS_VALID if not provided
     status = status or STATUS_VALID
+
+    if status == STATUS_NO_SIGNAL then
+        return nil
+    end
 
     -- If value is nil, set status to invalid if not already set
     if value == nil and status == STATUS_VALID then
